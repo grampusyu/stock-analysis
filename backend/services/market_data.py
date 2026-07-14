@@ -164,6 +164,17 @@ def get_kr_fund_flow(ticker: str, days: int = 30) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _safe(v) -> float | None:
+    import math
+    if v is None:
+        return None
+    try:
+        f = float(v)
+        return None if (math.isnan(f) or math.isinf(f)) else f
+    except Exception:
+        return None
+
+
 def get_sector_data(market: str = "KR", trend_period: str = "3m") -> list:
     if market == "KR":
         sector_etfs = {
@@ -208,41 +219,55 @@ def get_sector_data(market: str = "KR", trend_period: str = "3m") -> list:
     def fetch_etf(etf: str, trend_period: str) -> tuple[float, float, list[float]] | None:
         """ETF로 trend_pct, daily_pct, sparkline 계산. 실패 시 None."""
         try:
+            def _spark(series) -> list[float]:
+                vals = [_safe(v) for v in series.values]
+                return [v for v in vals if v is not None]
+
             if trend_period == "1d":
                 hist = yf.Ticker(etf).history(period="5d", interval="1d")
                 if len(hist) < 2:
                     return None
-                start_price = float(hist["Close"].iloc[-2])
-                end_price   = float(hist["Close"].iloc[-1])
+                start_price = _safe(hist["Close"].iloc[-2])
+                end_price   = _safe(hist["Close"].iloc[-1])
+                if not start_price or not end_price:
+                    return None
                 trend_pct   = (end_price - start_price) / start_price * 100
                 daily_pct   = trend_pct
-                sparkline   = [round(float(v), 2) for v in hist["Close"].values]
+                sparkline   = _spark(hist["Close"])
             elif trend_period == "1w":
                 hist = yf.Ticker(etf).history(period="5d", interval="1d")
                 if len(hist) < 2:
                     return None
-                start_price = float(hist["Close"].iloc[0])
-                end_price   = float(hist["Close"].iloc[-1])
-                prev_price  = float(hist["Close"].iloc[-2])
+                start_price = _safe(hist["Close"].iloc[0])
+                end_price   = _safe(hist["Close"].iloc[-1])
+                prev_price  = _safe(hist["Close"].iloc[-2])
+                if not start_price or not end_price or not prev_price:
+                    return None
                 trend_pct   = (end_price - start_price) / start_price * 100
                 daily_pct   = (end_price - prev_price) / prev_price * 100
-                sparkline   = [round(float(v), 2) for v in hist["Close"].values]
+                sparkline   = _spark(hist["Close"])
             else:
                 yf_period = {"1m": "1mo", "3m": "3mo", "6m": "6mo", "1y": "1y"}.get(trend_period, "3mo")
                 hist = yf.Ticker(etf).history(period=yf_period)
                 if len(hist) < 2:
                     return None
-                start_price = float(hist["Close"].iloc[0])
-                end_price   = float(hist["Close"].iloc[-1])
-                prev_price  = float(hist["Close"].iloc[-2])
+                start_price = _safe(hist["Close"].iloc[0])
+                end_price   = _safe(hist["Close"].iloc[-1])
+                prev_price  = _safe(hist["Close"].iloc[-2])
+                if not start_price or not end_price or not prev_price:
+                    return None
                 trend_pct   = (end_price - start_price) / start_price * 100
                 daily_pct   = (end_price - prev_price) / prev_price * 100
                 step = max(1, len(hist) // 30)
                 sampled = hist["Close"].iloc[::step]
                 if sampled.index[-1] != hist.index[-1]:
                     sampled = pd.concat([sampled, hist["Close"].iloc[[-1]]])
-                sparkline = [round(float(v), 2) for v in sampled.values]
-            return trend_pct, daily_pct, sparkline
+                sparkline = _spark(sampled)
+            t = _safe(trend_pct)
+            d = _safe(daily_pct)
+            if t is None or d is None:
+                return None
+            return t, d, sparkline
         except Exception:
             return None
 
@@ -261,20 +286,24 @@ def get_sector_data(market: str = "KR", trend_period: str = "3m") -> list:
                 if len(df) < 2:
                     continue
                 closes = df["종가"].tolist()
-                trend_pcts.append((closes[-1] - closes[0]) / closes[0] * 100)
-                daily_pcts.append((closes[-1] - closes[-2]) / closes[-2] * 100)
+                t = _safe((closes[-1] - closes[0]) / closes[0] * 100)
+                d = _safe((closes[-1] - closes[-2]) / closes[-2] * 100)
+                if t is None or d is None:
+                    continue
+                trend_pcts.append(t)
+                daily_pcts.append(d)
                 if not sparkline:
                     step = max(1, len(closes) // 30)
-                    sparkline = [round(float(v), 2) for v in closes[::step]]
+                    sparkline = [v for v in [_safe(x) for x in closes[::step]] if v is not None]
             except Exception:
                 continue
         if not trend_pcts:
             return None
-        return (
-            sum(trend_pcts) / len(trend_pcts),
-            sum(daily_pcts) / len(daily_pcts),
-            sparkline,
-        )
+        t_avg = _safe(sum(trend_pcts) / len(trend_pcts))
+        d_avg = _safe(sum(daily_pcts) / len(daily_pcts))
+        if t_avg is None or d_avg is None:
+            return None
+        return t_avg, d_avg, sparkline
 
     def fetch_one(item: tuple[str, str | None]) -> dict | None:
         sector, etf = item
