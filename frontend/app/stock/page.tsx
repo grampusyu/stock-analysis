@@ -5,7 +5,7 @@ import Navbar from "@/components/Navbar";
 import StockChart from "@/components/StockChart";
 import FundFlowChart from "@/components/FundFlowChart";
 import FinancialsPanel from "@/components/FinancialsPanel";
-import { api, Market, Period, OHLCVRecord, TechnicalSummary, PredictionResult, FinancialData, CompanyOverview } from "@/lib/api";
+import { api, Market, Period, OHLCVRecord, TechnicalSummary, PredictionResult, FinancialData, CompanyOverview, NewsArticle } from "@/lib/api";
 
 const PERIODS: Period[] = ["1m", "3m", "6m", "1y", "3y"];
 const PERIOD_LABEL: Record<Period, string> = { "1m": "1개월", "3m": "3개월", "6m": "6개월", "1y": "1년", "3y": "3년" };
@@ -46,6 +46,9 @@ function StockContent() {
   const [financialsError, setFinancialsError] = useState("");
   const [overview, setOverview] = useState<CompanyOverview | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<"chart" | "news">("chart");
+  const [newsArticles, setNewsArticles] = useState<NewsArticle[]>([]);
+  const [newsLoading, setNewsLoading] = useState(false);
   const [error, setError] = useState("");
   const [krMapStatus, setKrMapStatus] = useState<{ fullMapReady: boolean; fullMapBuilding: boolean; totalTickers: number | null } | null>(null);
   const krMapPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -176,6 +179,8 @@ function StockContent() {
     setOverviewLoading(false);
     setLivePrice(null);
     setWsStatus("closed");
+    setActiveTab("chart");
+    setNewsArticles([]);
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
 
     // 종목명 입력 시 티커코드로 자동 변환
@@ -504,17 +509,72 @@ function StockContent() {
         );
       })()}
 
-      {/* 차트 */}
+      {/* 탭 */}
       {chartData.length > 0 && (
+        <div className="flex gap-1 border-b" style={{ borderColor: "var(--card-border)" }}>
+          {(["chart", "news"] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={async () => {
+                setActiveTab(tab);
+                if (tab === "news" && newsArticles.length === 0 && !newsLoading && ticker) {
+                  setNewsLoading(true);
+                  try {
+                    const res = await api.getStockNews(market, ticker);
+                    setNewsArticles(res.articles);
+                  } catch { setNewsArticles([]); }
+                  finally { setNewsLoading(false); }
+                }
+              }}
+              className="px-4 py-2 text-sm font-medium transition-colors"
+              style={{
+                borderBottom: activeTab === tab ? "2px solid var(--accent)" : "2px solid transparent",
+                color: activeTab === tab ? "var(--accent)" : "var(--muted)",
+                marginBottom: "-1px",
+              }}
+            >
+              {tab === "chart" ? "차트 & 분석" : "뉴스"}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* 차트 */}
+      {activeTab === "chart" && chartData.length > 0 && (
         <div className="card">
           <h2 className="font-semibold mb-3">가격 차트</h2>
           <StockChart data={chartData} />
         </div>
       )}
 
+      {/* 뉴스 탭 */}
+      {activeTab === "news" && (
+        <div className="space-y-3">
+          {newsLoading && Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="card animate-pulse">
+              <div className="h-4 rounded mb-2" style={{ background: "var(--card-border)", width: "88%" }} />
+              <div className="h-3 rounded" style={{ background: "var(--card-border)", width: "35%" }} />
+            </div>
+          ))}
+          {!newsLoading && newsArticles.length === 0 && (
+            <div className="card text-sm text-center" style={{ color: "var(--muted)" }}>뉴스가 없습니다.</div>
+          )}
+          {!newsLoading && newsArticles.map((a, i) => (
+            <a key={i} href={a.url} target="_blank" rel="noopener noreferrer"
+              className="card block hover:opacity-80 transition-opacity" style={{ textDecoration: "none" }}>
+              <p className="text-sm font-medium leading-snug mb-2" style={{ color: "var(--foreground)" }}>{a.title}</p>
+              <div className="flex items-center gap-3 text-xs" style={{ color: "var(--muted)" }}>
+                {a.source && <span>{a.source}</span>}
+                {a.published && <span>{a.published}</span>}
+              </div>
+            </a>
+          ))}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* 기술적 분석 */}
-        {technical && (
+        {activeTab === "chart" && technical && (
           <div className="card space-y-3">
             <h2 className="font-semibold">기술적 지표</h2>
             <div className="grid grid-cols-2 gap-2 text-sm">
@@ -546,7 +606,7 @@ function StockContent() {
         )}
 
         {/* AI 예측 */}
-        {(prediction || predLoading) && (
+        {activeTab === "chart" && (prediction || predLoading) && (
           <div className="card space-y-3">
             <h2 className="font-semibold">
               AI 가격 예측 (7일)
@@ -612,7 +672,7 @@ function StockContent() {
       </div>
 
       {/* 자금 흐름 */}
-      {market === "KR" && fundFlow.length > 0 && (
+      {activeTab === "chart" && market === "KR" && fundFlow.length > 0 && (
         <div className="card">
           <h2 className="font-semibold mb-3">자금 유입 흐름 (30일)</h2>
           <FundFlowChart data={fundFlow as Parameters<typeof FundFlowChart>[0]["data"]} />
@@ -620,7 +680,7 @@ function StockContent() {
       )}
 
       {/* 기업개요 + 재무제표 패널 */}
-      {(overview || overviewLoading || financials || (financialsError && chartData.length > 0)) && (
+      {activeTab === "chart" && (overview || overviewLoading || financials || (financialsError && chartData.length > 0)) && (
         <div className="space-y-0">
           {/* 재무 데이터 없을 때도 기업개요는 표시 */}
           <FinancialsPanel
