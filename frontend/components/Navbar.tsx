@@ -7,6 +7,7 @@ const links = [
   { href: "/stock", label: "종목 분석" },
   { href: "/sectors", label: "섹터 분석" },
   { href: "/portfolio", label: "포트폴리오" },
+  { href: "/news", label: "뉴스" },
 ];
 
 export default function Navbar() {

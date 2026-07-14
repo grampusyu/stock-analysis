@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import stocks, portfolio, analysis, realtime, financials
+from routers import stocks, portfolio, analysis, realtime, financials, news
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -27,6 +27,7 @@ app.include_router(portfolio.router, prefix="/api/portfolio", tags=["portfolio"]
 app.include_router(analysis.router, prefix="/api/analysis", tags=["analysis"])
 app.include_router(realtime.router, prefix="/api/realtime", tags=["realtime"])
 app.include_router(financials.router, prefix="/api/financials", tags=["financials"])
+app.include_router(news.router, prefix="/api/news", tags=["news"])
 
 
 @app.get("/health")

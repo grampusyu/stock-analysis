@@ -86,6 +86,13 @@ export interface FinancialData {
   unit: string;
 }
 
+export interface NewsArticle {
+  title: string;
+  url: string;
+  source: string;
+  published: string;
+}
+
 export interface Holding {
   ticker: string;
   market: Market;
@@ -150,4 +157,10 @@ export const api = {
 
   searchStocks: (market: Market, q: string) =>
     get<{ results: { ticker: string; name: string }[] }>(`/stocks/search/${market}?q=${encodeURIComponent(q)}`),
+
+  getStockNews: (market: Market, ticker: string) =>
+    get<{ articles: NewsArticle[]; ticker: string; market: string }>(`/news/stock/${market}/${ticker}`),
+
+  getMarketNews: (market: Market) =>
+    get<{ articles: NewsArticle[]; market: string }>(`/news/market?market=${market}`),
 };
