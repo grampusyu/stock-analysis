@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+venv/
+.venv/
+
+# Conda
+*.conda
+
+# Backend models (re-trained locally)
+backend/models/
+
+# Backend data cache
+backend/data/
+
+# SQLite DB
+backend/*.db
+
+# Stray files
+backend/6.31.1
+
+# Node
+node_modules/
+.next/
+.turbo/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
