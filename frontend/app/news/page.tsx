@@ -131,7 +131,7 @@ export default function NewsPage() {
   return (
     <>
       <Navbar />
-      <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+      <div className="w-[768px] mx-auto px-4 py-8 space-y-6">
         <div className="space-y-1">
           <h1 className="text-2xl font-bold">주식 뉴스</h1>
           <p className="text-sm" style={{ color: "var(--muted)" }}>
