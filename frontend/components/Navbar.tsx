@@ -6,6 +6,7 @@ const links = [
   { href: "/", label: "대시보드" },
   { href: "/stock", label: "종목 분석" },
   { href: "/sectors", label: "섹터 분석" },
+  { href: "/recommend", label: "추천종목" },
   { href: "/screener", label: "스크리너" },
   { href: "/watchlist", label: "관심종목" },
   { href: "/portfolio", label: "포트폴리오" },
