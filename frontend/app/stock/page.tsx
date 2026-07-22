@@ -11,6 +11,7 @@ const PERIODS: Period[] = ["1m", "3m", "6m", "1y", "3y"];
 const PERIOD_LABEL: Record<Period, string> = { "1m": "1개월", "3m": "3개월", "6m": "6개월", "1y": "1년", "3y": "3년" };
 
 const RECENT_KEY = "stock_recent_searches";
+const PERIOD_KEY = "stock_period";
 const MAX_RECENT = 10;
 
 type RecentSearch = { market: Market; ticker: string; name: string };
@@ -23,7 +24,12 @@ function StockContent() {
   const [market, setMarket] = useState<Market>(initMarket);
   const [ticker, setTicker] = useState(initTicker);       // API용 실제 코드
   const [displayValue, setDisplayValue] = useState(initTicker); // 입력창 표시값
-  const [period, setPeriod] = useState<Period>("1y");
+  const [period, setPeriod] = useState<Period>(() => {
+    try {
+      const saved = localStorage.getItem(PERIOD_KEY) as Period;
+      return PERIODS.includes(saved) ? saved : "1y";
+    } catch { return "1y"; }
+  });
   const [suggestions, setSuggestions] = useState<{ ticker: string; name: string }[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [recentSearches, setRecentSearches] = useState<RecentSearch[]>([]);
@@ -310,7 +316,7 @@ function StockContent() {
   // URL 파라미터로 진입 시 자동 조회 (섹터 패널 "상세 분석 →" 링크 등)
   useEffect(() => {
     if (initTicker.trim()) {
-      search(initMarket, initTicker, "1y");
+      search(initMarket, initTicker, period);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -432,7 +438,7 @@ function StockContent() {
           {PERIODS.map((p) => (
             <button
               key={p}
-              onClick={() => setPeriod(p)}
+              onClick={() => { setPeriod(p); localStorage.setItem(PERIOD_KEY, p); }}
               className="px-3 py-2 text-xs rounded-lg transition-colors"
               style={{ background: period === p ? "var(--accent)" : "var(--card)", border: "1px solid var(--card-border)", color: period === p ? "#fff" : "var(--muted)" }}
             >
