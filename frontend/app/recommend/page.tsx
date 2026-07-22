@@ -25,8 +25,15 @@ interface RecommendResult {
   cached: boolean;
 }
 
+const CACHE_KEY = "recommend_result";
+
 export default function RecommendPage() {
-  const [result, setResult]   = useState<RecommendResult | null>(null);
+  const [result, setResult]   = useState<RecommendResult | null>(() => {
+    try {
+      const saved = localStorage.getItem(CACHE_KEY);
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
   const [loading, setLoading] = useState(false);
   const [phase, setPhase]     = useState("");
   const [error, setError]     = useState("");
@@ -44,6 +51,7 @@ export default function RecommendPage() {
     setLoading(true);
     setError("");
     setResult(null);
+    if (refresh) try { localStorage.removeItem(CACHE_KEY); } catch { /* ignore */ }
 
     // 단계별 안내 메시지 순환
     let idx = 0;
@@ -59,6 +67,7 @@ export default function RecommendPage() {
       if (!res.ok) throw new Error(`서버 오류 (${res.status})`);
       const data = await res.json();
       setResult(data);
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch { /* ignore */ }
     } catch (e) {
       setError(e instanceof Error ? e.message : "조회 실패");
     } finally {
