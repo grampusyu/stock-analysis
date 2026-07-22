@@ -75,6 +75,45 @@ def stock_news(market: str, ticker: str):
     return {"articles": articles, "ticker": ticker, "market": market}
 
 
+@router.get("/sentiment/{market}/{ticker}")
+def news_sentiment(market: str, ticker: str):
+    """뉴스 조회 + Gemini 감성 분석. 캐시 30분."""
+    from services.sentiment import get_sentiment_cached
+
+    # 뉴스 먼저 조회 (기존 캐시 활용)
+    key = f"stock:{market}:{ticker}"
+    articles = _cached(key)
+    if articles is None:
+        if market.upper() == "KR":
+            name = _get_kr_company_name(ticker)
+            articles = _fetch_google_news(f'"{name}"', lang="ko", country="KR")
+        else:
+            articles = _fetch_google_news(f"{ticker.upper()} stock", lang="en", country="US")
+        _store(key, articles)
+
+    if market.upper() == "KR":
+        stock_name = _get_kr_company_name(ticker)
+    else:
+        stock_name = ticker.upper()
+
+    analyzed = get_sentiment_cached(market, ticker, stock_name, articles)
+
+    pos = sum(1 for a in analyzed if a["sentiment"] == "긍정")
+    neg = sum(1 for a in analyzed if a["sentiment"] == "부정")
+    neu = sum(1 for a in analyzed if a["sentiment"] == "중립")
+    total = len(analyzed)
+    overall = "긍정" if pos > neg and pos >= total * 0.4 else "부정" if neg > pos and neg >= total * 0.4 else "중립"
+
+    return {
+        "ticker": ticker,
+        "market": market,
+        "stock_name": stock_name,
+        "overall": overall,
+        "counts": {"긍정": pos, "중립": neu, "부정": neg},
+        "articles": analyzed,
+    }
+
+
 @router.get("/market")
 def market_news(market: str = Query("KR")):
     key = f"market:{market}"
