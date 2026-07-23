@@ -1,4 +1,9 @@
-const BASE = "http://localhost:8000/api";
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL
+  ? process.env.NEXT_PUBLIC_API_URL + "/api"
+  : "/api";
+export const WS_BASE = process.env.NEXT_PUBLIC_WS_URL ?? "";
+
+const BASE = API_BASE;
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { cache: "no-store" });

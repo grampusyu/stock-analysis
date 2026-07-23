@@ -5,7 +5,7 @@ import Navbar from "@/components/Navbar";
 import StockChart from "@/components/StockChart";
 import FundFlowChart from "@/components/FundFlowChart";
 import FinancialsPanel from "@/components/FinancialsPanel";
-import { api, Market, Period, OHLCVRecord, TechnicalSummary, PredictionResult, FinancialData, CompanyOverview, NewsArticle } from "@/lib/api";
+import { api, Market, Period, OHLCVRecord, TechnicalSummary, PredictionResult, FinancialData, CompanyOverview, NewsArticle, API_BASE, WS_BASE } from "@/lib/api";
 
 const PERIODS: Period[] = ["1m", "3m", "6m", "1y", "3y"];
 const PERIOD_LABEL: Record<Period, string> = { "1m": "1개월", "3m": "3개월", "6m": "6개월", "1y": "1년", "3y": "3년" };
@@ -95,7 +95,7 @@ function StockContent() {
     if (fromSuggestions) return fromSuggestions.ticker;
     // 없으면 API 호출
     try {
-      const res = await fetch(`http://localhost:8000/api/stocks/search/KR?q=${encodeURIComponent(trimmed)}`);
+      const res = await fetch(`${API_BASE}/stocks/search/KR?q=${encodeURIComponent(trimmed)}`);
       const data = await res.json();
       if (data.results?.length > 0) return data.results[0].ticker;
     } catch { /* ignore */ }
@@ -110,8 +110,9 @@ function StockContent() {
     setLivePrice(null);
     setWsStatus("connecting");
 
+    const wsBase = WS_BASE || `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}`;
     const ws = new WebSocket(
-      `ws://localhost:8000/api/realtime/ws/price/${searchMarket}/${resolvedTicker}`
+      `${wsBase}/api/realtime/ws/price/${searchMarket}/${resolvedTicker}`
     );
     wsRef.current = ws;
 
@@ -135,7 +136,7 @@ function StockContent() {
     setPredLoading(true);
 
     const es = new EventSource(
-      `http://localhost:8000/api/stocks/predict-stream/${searchMarket}/${resolvedTicker}?days=7`
+      `${API_BASE}/stocks/predict-stream/${searchMarket}/${resolvedTicker}?days=7`
     );
     predSourceRef.current = es;
 
@@ -257,7 +258,7 @@ function StockContent() {
     }
     searchDebounce.current = setTimeout(async () => {
       try {
-        const res = await fetch(`http://localhost:8000/api/stocks/search/${market}?q=${encodeURIComponent(value)}`);
+        const res = await fetch(`${API_BASE}/stocks/search/${market}?q=${encodeURIComponent(value)}`);
         const data = await res.json();
         setSuggestions(data.results ?? []);
         setShowSuggestions((data.results ?? []).length > 0);
@@ -278,7 +279,7 @@ function StockContent() {
     if (market !== "KR") return;
     const fetchStatus = async () => {
       try {
-        const res = await fetch("http://localhost:8000/api/stocks/search-status");
+        const res = await fetch(`${API_BASE}/stocks/search-status`);
         const data = await res.json();
         setKrMapStatus({
           fullMapReady: data.full_map_ready,
@@ -438,7 +439,7 @@ function StockContent() {
           {PERIODS.map((p) => (
             <button
               key={p}
-              onClick={() => { setPeriod(p); localStorage.setItem(PERIOD_KEY, p); }}
+              onClick={() => { setPeriod(p); localStorage.setItem(PERIOD_KEY, p); if (ticker) search(market, ticker, p); }}
               className="px-3 py-2 text-xs rounded-lg transition-colors"
               style={{ background: period === p ? "var(--accent)" : "var(--card)", border: "1px solid var(--card-border)", color: period === p ? "#fff" : "var(--muted)" }}
             >
@@ -449,10 +450,10 @@ function StockContent() {
         <button
           onClick={() => search()}
           disabled={loading}
-          className="px-5 py-2 rounded-lg text-sm font-medium text-white transition-colors"
+          className="w-24 py-2 rounded-lg text-sm font-medium text-white transition-colors"
           style={{ background: loading ? "var(--muted)" : "var(--accent)" }}
         >
-          {loading ? "조회 중..." : "조회"}
+          {loading ? "조회 중" : "조회하기"}
         </button>
         {market === "KR" && krMapStatus && (
           <span
@@ -549,7 +550,7 @@ function StockContent() {
       {activeTab === "chart" && chartData.length > 0 && (
         <div className="card">
           <h2 className="font-semibold mb-3">가격 차트</h2>
-          <StockChart data={chartData} />
+          <StockChart data={chartData} market={market} />
         </div>
       )}
 

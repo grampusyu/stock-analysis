@@ -2,6 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
+import { API_BASE } from "@/lib/api";
 
 interface ScreenerResult {
   ticker: string;
@@ -100,7 +101,7 @@ export default function ScreenerPage() {
     setSearched(false);
     const start = Date.now();
     try {
-      const res = await fetch(`http://localhost:8000/api/screener/kr?${buildQuery(f)}`);
+      const res = await fetch(`${API_BASE}/screener/kr?${buildQuery(f)}`);
       const data = await res.json();
       setResults(data.results ?? []);
       setTotal(data.total ?? 0);

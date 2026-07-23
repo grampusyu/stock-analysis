@@ -98,6 +98,11 @@ def news_sentiment(market: str, ticker: str):
 
     analyzed = get_sentiment_cached(market, ticker, stock_name, articles)
 
+    # 최근 날짜순 정렬
+    def _pub_key(a: dict) -> str:
+        return a.get("published") or ""
+    analyzed = sorted(analyzed, key=_pub_key, reverse=True)
+
     pos = sum(1 for a in analyzed if a["sentiment"] == "긍정")
     neg = sum(1 for a in analyzed if a["sentiment"] == "부정")
     neu = sum(1 for a in analyzed if a["sentiment"] == "중립")

@@ -1,8 +1,20 @@
 "use client";
 import { Fragment, useState, useEffect, useCallback, useRef } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
-import { api, Market } from "@/lib/api";
+import { api, Market, API_BASE } from "@/lib/api";
+import type { OHLCVRecord } from "@/lib/api";
+
+const MiniSparkChart = dynamic(() => import("@/components/MiniSparkChart"), { ssr: false });
+
+const CHART_PERIODS = [
+  { value: "1m", label: "1개월" },
+  { value: "3m", label: "3개월" },
+  { value: "6m", label: "6개월" },
+  { value: "1y", label: "1년" },
+] as const;
+type ChartPeriod = typeof CHART_PERIODS[number]["value"];
 
 interface WatchItem {
   market: Market;
@@ -64,13 +76,16 @@ export default function WatchlistPage() {
   const [sentimentMap, setSentimentMap] = useState<Record<string, SentimentResult | "loading" | "error">>({});
   // 열린 감성 패널
   const [expandedTicker, setExpandedTicker] = useState<string | null>(null);
+  const [chartPeriod, setChartPeriod]       = useState<ChartPeriod>("3m");
+  const [miniCharts, setMiniCharts]         = useState<Record<string, OHLCVRecord[]>>({});
+  const [chartsLoading, setChartsLoading]   = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchList = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("http://localhost:8000/api/watchlist");
+      const res = await fetch(`${API_BASE}/watchlist`);
       const data = await res.json();
       setItems(data.items ?? []);
     } catch {
@@ -81,6 +96,30 @@ export default function WatchlistPage() {
   }, []);
 
   useEffect(() => { fetchList(); }, [fetchList]);
+
+  useEffect(() => {
+    if (items.length === 0) return;
+    setChartsLoading(true);
+    setMiniCharts({});
+    Promise.all(
+      items.map(async (item) => {
+        const key = `${item.market}:${item.ticker}`;
+        try {
+          const res = await fetch(
+            `${API_BASE}/stocks/chart/${item.market}/${item.ticker}?period=${chartPeriod}&interval=daily`
+          );
+          if (!res.ok) return [key, []] as [string, OHLCVRecord[]];
+          const data = await res.json();
+          return [key, data.data ?? []] as [string, OHLCVRecord[]];
+        } catch {
+          return [key, []] as [string, OHLCVRecord[]];
+        }
+      })
+    ).then((entries) => {
+      setMiniCharts(Object.fromEntries(entries));
+      setChartsLoading(false);
+    });
+  }, [items, chartPeriod]);
 
   const handleInputChange = (val: string) => {
     setDisplayValue(val);
@@ -104,15 +143,15 @@ export default function WatchlistPage() {
     setShowSuggestions(false);
   };
 
-  const add = async () => {
-    const ticker = market === "US" ? input.trim().toUpperCase() : input.trim();
-    if (!ticker) return;
+  const submitAdd = async (tickerCode: string) => {
+    if (!tickerCode) return;
+    if (market === "KR" && !/^\d{6}$/.test(tickerCode)) return;
     setAdding(true);
     try {
-      await fetch("http://localhost:8000/api/watchlist", {
+      await fetch(`${API_BASE}/watchlist`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ market, ticker }),
+        body: JSON.stringify({ market, ticker: tickerCode }),
       });
       setInput("");
       setDisplayValue("");
@@ -123,8 +162,20 @@ export default function WatchlistPage() {
     }
   };
 
+  const add = async () => {
+    // KR: 자동완성 목록이 있으면 첫 번째 항목 자동 선택
+    if (market === "KR" && suggestions.length > 0) {
+      const s = suggestions[0];
+      selectSuggestion(s);
+      await submitAdd(s.ticker);
+      return;
+    }
+    const ticker = market === "US" ? input.trim().toUpperCase() : input.trim();
+    await submitAdd(ticker);
+  };
+
   const remove = async (item: WatchItem) => {
-    await fetch(`http://localhost:8000/api/watchlist/${item.market}/${item.ticker}`, {
+    await fetch(`${API_BASE}/watchlist/${item.market}/${item.ticker}`, {
       method: "DELETE",
     });
     setSentimentMap((prev) => {
@@ -136,6 +187,22 @@ export default function WatchlistPage() {
     await fetchList();
   };
 
+  const fetchSentiment = async (item: WatchItem) => {
+    const key = `${item.market}:${item.ticker}`;
+    setSentimentMap((prev) => ({ ...prev, [key]: "loading" }));
+    try {
+      const res = await fetch(
+        `${API_BASE}/news/sentiment/${item.market}/${item.ticker}`
+      );
+      if (!res.ok) throw new Error(`서버 오류 (${res.status})`);
+      const data = await res.json();
+      if (!isValidSentiment(data)) throw new Error("invalid response");
+      setSentimentMap((prev) => ({ ...prev, [key]: data }));
+    } catch {
+      setSentimentMap((prev) => ({ ...prev, [key]: "error" }));
+    }
+  };
+
   const analyzeSentiment = async (item: WatchItem) => {
     const key = `${item.market}:${item.ticker}`;
     if (expandedTicker === key) {
@@ -145,24 +212,13 @@ export default function WatchlistPage() {
     setExpandedTicker(key);
     if (sentimentMap[key] === "loading") return;
     if (sentimentMap[key] && sentimentMap[key] !== "error") return;
-
-    setSentimentMap((prev) => ({ ...prev, [key]: "loading" }));
-    try {
-      const res = await fetch(
-        `http://localhost:8000/api/news/sentiment/${item.market}/${item.ticker}`
-      );
-      const data = await res.json();
-      if (!isValidSentiment(data)) throw new Error("invalid response");
-      setSentimentMap((prev) => ({ ...prev, [key]: data }));
-    } catch {
-      setSentimentMap((prev) => ({ ...prev, [key]: "error" }));
-    }
+    fetchSentiment(item);
   };
 
   return (
     <>
       <Navbar />
-      <main className="p-6 space-y-6 max-w-5xl mx-auto w-full">
+      <main className="p-6 space-y-6 max-w-7xl mx-auto w-full">
         <div>
           <h1 className="text-2xl font-bold">관심종목</h1>
           <p className="text-sm mt-1" style={{ color: "var(--muted)" }}>
@@ -194,7 +250,19 @@ export default function WatchlistPage() {
                 placeholder={market === "KR" ? "종목명 또는 코드 (예: 삼성전자, 005930)" : "티커 (예: AAPL)"}
                 value={displayValue}
                 onChange={(e) => handleInputChange(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") { setShowSuggestions(false); add(); } if (e.key === "Escape") setShowSuggestions(false); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    if (market === "KR" && showSuggestions && suggestions.length > 0) {
+                      const s = suggestions[0];
+                      selectSuggestion(s);
+                      submitAdd(s.ticker);
+                    } else {
+                      setShowSuggestions(false);
+                      add();
+                    }
+                  }
+                  if (e.key === "Escape") setShowSuggestions(false);
+                }}
                 onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
                 autoComplete="off"
               />
@@ -246,10 +314,27 @@ export default function WatchlistPage() {
           </div>
         ) : (
           <div className="card overflow-x-auto">
+            <div className="flex justify-end pb-3">
+              <select
+                value={chartPeriod}
+                onChange={(e) => setChartPeriod(e.target.value as ChartPeriod)}
+                className="text-xs px-2 py-1.5 rounded-lg"
+                style={{
+                  background: "var(--card)",
+                  border: "1px solid var(--card-border)",
+                  color: "var(--foreground)",
+                  outline: "none",
+                }}
+              >
+                {CHART_PERIODS.map((p) => (
+                  <option key={p.value} value={p.value}>{p.label}</option>
+                ))}
+              </select>
+            </div>
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--card-border)" }}>
-                  {["종목명", "코드", "시장", "현재가", "등락률", "거래량", "뉴스 감성", ""].map((h) => (
+                  {["종목명", "코드", "시장", "현재가", "등락률", "거래량", "뉴스 감성", "차트", ""].map((h) => (
                     <th key={h} className="text-left py-2 px-3 font-medium" style={{ color: "var(--muted)" }}>{h}</th>
                   ))}
                 </tr>
@@ -323,7 +408,7 @@ export default function WatchlistPage() {
                             </span>
                           ) : sentiment === "error" ? (
                             <button
-                              onClick={() => { setSentimentMap((p) => { const n={...p}; delete n[key]; return n; }); analyzeSentiment(item); }}
+                              onClick={() => fetchSentiment(item)}
                               className="text-xs px-2.5 py-1 rounded-full transition-colors"
                               style={{ background: "#ef444420", color: "#ef4444" }}
                             >
@@ -341,7 +426,16 @@ export default function WatchlistPage() {
                             </button>
                           )}
                         </td>
-                        <td className="py-3 px-3">
+                        {/* 차트 */}
+                        <td className="py-2 px-3" style={{ width: 140, maxWidth: 140, overflow: "hidden" }}>
+                          {chartsLoading || !(miniCharts[key]?.length) ? (
+                            <div className="rounded animate-pulse"
+                              style={{ height: 75, background: "var(--card-border)" }} />
+                          ) : (
+                            <MiniSparkChart data={miniCharts[key]} height={75} market={item.market} />
+                          )}
+                        </td>
+                        <td className="py-3 px-3 whitespace-nowrap">
                           <div className="flex gap-3 items-center">
                             <Link
                               href={`/stock?market=${item.market}&ticker=${item.ticker}`}
@@ -366,7 +460,7 @@ export default function WatchlistPage() {
                       {/* 감성 분석 펼침 패널 */}
                       {isExpanded && sentiment && sentiment !== "loading" && (
                         <tr style={{ borderBottom: "1px solid var(--card-border)" }}>
-                          <td colSpan={8} className="px-4 pb-4 pt-1">
+                          <td colSpan={9} className="px-4 pb-4 pt-1">
                             <div className="rounded-lg p-4 space-y-3" style={{ background: "var(--background)", border: "1px solid var(--card-border)" }}>
                               {/* 요약 헤더 */}
                               <div className="flex items-center gap-4">

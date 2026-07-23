@@ -1,7 +1,12 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
+import { API_BASE } from "@/lib/api";
+import type { OHLCVRecord } from "@/lib/api";
+
+const MiniSparkChart = dynamic(() => import("@/components/MiniSparkChart"), { ssr: false });
 
 interface PatternSignals {
   MA?: string;
@@ -37,17 +42,27 @@ interface RecommendResult {
 }
 
 const CACHE_KEY = "recommend_result";
+const CHART_PERIODS = [
+  { value: "1m", label: "1개월" },
+  { value: "3m", label: "3개월" },
+  { value: "6m", label: "6개월" },
+  { value: "1y", label: "1년" },
+] as const;
+type ChartPeriod = typeof CHART_PERIODS[number]["value"];
 
 export default function RecommendPage() {
-  const [result, setResult]   = useState<RecommendResult | null>(() => {
+  const [result, setResult] = useState<RecommendResult | null>(() => {
     try {
       const saved = localStorage.getItem(CACHE_KEY);
       return saved ? JSON.parse(saved) : null;
     } catch { return null; }
   });
-  const [loading, setLoading] = useState(false);
-  const [phase, setPhase]     = useState("");
-  const [error, setError]     = useState("");
+  const [loading, setLoading]             = useState(false);
+  const [phase, setPhase]                 = useState("");
+  const [error, setError]                 = useState("");
+  const [chartPeriod, setChartPeriod]     = useState<ChartPeriod>("3m");
+  const [miniCharts, setMiniCharts]       = useState<Record<string, OHLCVRecord[]>>({});
+  const [chartsLoading, setChartsLoading] = useState(false);
 
   const PHASES = [
     "KOSPI·KOSDAQ 전종목 시세 조회 중...",
@@ -58,13 +73,36 @@ export default function RecommendPage() {
     "최종 순위 산정 중...",
   ];
 
+  useEffect(() => {
+    if (!result || result.stocks.length === 0) return;
+    setChartsLoading(true);
+    setMiniCharts({});
+    Promise.all(
+      result.stocks.map(async (s) => {
+        try {
+          const res = await fetch(
+            `${API_BASE}/stocks/chart/KR/${s.ticker}?period=${chartPeriod}&interval=daily`
+          );
+          if (!res.ok) return [s.ticker, []] as [string, OHLCVRecord[]];
+          const data = await res.json();
+          return [s.ticker, data.data ?? []] as [string, OHLCVRecord[]];
+        } catch {
+          return [s.ticker, []] as [string, OHLCVRecord[]];
+        }
+      })
+    ).then((entries) => {
+      setMiniCharts(Object.fromEntries(entries));
+      setChartsLoading(false);
+    });
+  }, [result, chartPeriod]);
+
   const load = async (refresh = false) => {
     setLoading(true);
     setError("");
     setResult(null);
+    setMiniCharts({});
     if (refresh) try { localStorage.removeItem(CACHE_KEY); } catch { /* ignore */ }
 
-    // 단계별 안내 메시지 순환
     let idx = 0;
     setPhase(PHASES[0]);
     const interval = setInterval(() => {
@@ -73,7 +111,7 @@ export default function RecommendPage() {
     }, 8000);
 
     try {
-      const url = `http://localhost:8000/api/recommend/kr${refresh ? "?refresh=true" : ""}`;
+      const url = `${API_BASE}/recommend/kr${refresh ? "?refresh=true" : ""}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`서버 오류 (${res.status})`);
       const data = await res.json();
@@ -144,9 +182,7 @@ export default function RecommendPage() {
               ))}
             </div>
             <p className="text-sm font-medium" style={{ color: "var(--muted)" }}>{phase}</p>
-            <p className="text-xs" style={{ color: "var(--muted)" }}>
-              최초 조회 시 30~60초 소요됩니다
-            </p>
+            <p className="text-xs" style={{ color: "var(--muted)" }}>최초 조회 시 30~60초 소요됩니다</p>
           </div>
         )}
 
@@ -160,22 +196,42 @@ export default function RecommendPage() {
         {result && (
           <>
             {/* 메타 정보 */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="text-xs space-x-3" style={{ color: "var(--muted)" }}>
                 <span>마지막 업데이트: <b style={{ color: "var(--foreground)" }}>{result.generated_at}</b></span>
                 <span>다음 업데이트: <b style={{ color: "var(--foreground)" }}>{result.valid_until} (목요일)</b></span>
-                {result.cached && <span className="px-1.5 py-0.5 rounded text-xs"
-                  style={{ background: "#3b82f620", color: "#60a5fa" }}>캐시됨</span>}
+                {result.cached && (
+                  <span className="px-1.5 py-0.5 rounded text-xs"
+                    style={{ background: "#3b82f620", color: "#60a5fa" }}>캐시됨</span>
+                )}
               </div>
-              <button
-                onClick={() => load(true)}
-                className="text-xs px-3 py-1.5 rounded-lg transition-colors"
-                style={{ background: "var(--card-border)", color: "var(--muted)" }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = "var(--foreground)")}
-                onMouseLeave={(e) => (e.currentTarget.style.color = "var(--muted)")}
-              >
-                ↻ 새로고침
-              </button>
+              <div className="flex items-center gap-2">
+                {/* 차트 기간 드롭다운 */}
+                <select
+                  value={chartPeriod}
+                  onChange={(e) => setChartPeriod(e.target.value as ChartPeriod)}
+                  className="text-xs px-2 py-1.5 rounded-lg"
+                  style={{
+                    background: "var(--card)",
+                    border: "1px solid var(--card-border)",
+                    color: "var(--foreground)",
+                    outline: "none",
+                  }}
+                >
+                  {CHART_PERIODS.map((p) => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => load(true)}
+                  className="text-xs px-3 py-1.5 rounded-lg transition-colors"
+                  style={{ background: "var(--card-border)", color: "var(--muted)" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.color = "var(--foreground)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.color = "var(--muted)")}
+                >
+                  ↻ 새로고침
+                </button>
+              </div>
             </div>
 
             {result.stocks.length === 0 ? (
@@ -187,114 +243,127 @@ export default function RecommendPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr style={{ borderBottom: "1px solid var(--card-border)" }}>
-                      {["순위", "종목명", "코드", "시장", "현재가", "등락", "거래량", "섹터", "섹터 등락", "감성", "패턴"].map((h) => (
+                      {["순위", "종목명", "코드", "시장", "현재가", "등락", "거래량", "섹터", "섹터 등락", "감성", "패턴", "차트"].map((h) => (
                         <th key={h} className="text-left py-2 px-3 text-xs font-medium"
                           style={{ color: "var(--muted)" }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {result.stocks.map((s) => (
-                      <tr key={s.ticker}
-                        style={{ borderBottom: "1px solid var(--card-border)" }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = "var(--card-alt,#1e293b10)")}
-                        onMouseLeave={(e) => (e.currentTarget.style.background = "")}
-                      >
-                        {/* 순위 */}
-                        <td className="py-3 px-3">
-                          <span className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
-                            style={{
-                              background: s.rank <= 3 ? "var(--accent)" : "var(--card-border)",
-                              color: s.rank <= 3 ? "#fff" : "var(--muted)",
-                              display: "inline-flex",
-                            }}>
-                            {s.rank}
-                          </span>
-                        </td>
-                        {/* 종목명 */}
-                        <td className="py-3 px-3 font-medium">
-                          <Link href={`/stock?market=KR&ticker=${s.ticker}`}
-                            className="hover:underline" style={{ color: "var(--foreground)" }}>
-                            {s.name}
-                          </Link>
-                        </td>
-                        {/* 코드 */}
-                        <td className="py-3 px-3 font-mono text-xs" style={{ color: "var(--muted)" }}>
-                          {s.ticker}
-                        </td>
-                        {/* 시장 */}
-                        <td className="py-3 px-3 text-xs" style={{ color: "var(--muted)" }}>
-                          {s.market}
-                        </td>
-                        {/* 현재가 */}
-                        <td className="py-3 px-3 font-mono">{s.price.toLocaleString()}</td>
-                        {/* 등락 */}
-                        <td className={`py-3 px-3 font-mono text-xs font-medium ${s.change >= 0 ? "positive" : "negative"}`}>
-                          {s.change >= 0 ? "▲" : "▼"} {Math.abs(s.change).toFixed(2)}%
-                        </td>
-                        {/* 거래량 */}
-                        <td className="py-3 px-3 font-mono text-xs" style={{ color: "var(--muted)" }}>
-                          {s.volume.toLocaleString()}
-                        </td>
-                        {/* 섹터 */}
-                        <td className="py-3 px-3">
-                          <div className="flex flex-wrap gap-1">
-                            {s.sectors.slice(0, 2).map((sec) => (
-                              <span key={sec} className="text-xs px-1.5 py-0.5 rounded"
-                                style={{ background: "#6366f120", color: "#818cf8" }}>
-                                {sec}
-                              </span>
-                            ))}
-                          </div>
-                        </td>
-                        {/* 섹터 등락률 */}
-                        <td className={`py-3 px-3 font-mono text-xs font-medium ${s.sect_avg >= 0 ? "positive" : "negative"}`}>
-                          {s.sect_avg >= 0 ? "▲" : "▼"} {Math.abs(s.sect_avg).toFixed(2)}%
-                        </td>
-                        {/* 감성 */}
-                        <td className="py-3 px-3">
-                          <span className="text-xs px-2 py-0.5 rounded-full font-medium"
-                            style={{ background: "#10b98120", color: "#10b981" }}>
-                            😊 긍정
-                          </span>
-                        </td>
-                        {/* 패턴 */}
-                        <td className="py-3 px-3">
-                          {s.pattern ? (
-                            <div className="relative group inline-block">
-                              <span
-                                className="text-xs px-2 py-0.5 rounded-full font-medium cursor-default"
-                                style={{
-                                  background: s.pattern === "상승" ? "#10b98120" : s.pattern === "하락" ? "#ef444420" : "#6b728020",
-                                  color:      s.pattern === "상승" ? "#10b981"   : s.pattern === "하락" ? "#ef4444"   : "#9ca3af",
-                                }}
-                              >
-                                {s.pattern === "상승" ? "📈" : s.pattern === "하락" ? "📉" : "➡️"} {s.pattern}
-                                {s.pattern_score !== undefined && (
-                                  <span className="ml-1 opacity-60">({s.pattern_score > 0 ? "+" : ""}{s.pattern_score})</span>
-                                )}
-                              </span>
-                              {/* 툴팁 */}
-                              {s.pattern_signals && Object.keys(s.pattern_signals).length > 0 && (
-                                <div
-                                  className="absolute z-10 hidden group-hover:block bottom-full left-0 mb-1 w-40 rounded-lg p-2 text-xs shadow-lg"
-                                  style={{ background: "var(--card)", border: "1px solid var(--card-border)" }}
-                                >
-                                  {Object.entries(s.pattern_signals).map(([k, v]) => (
-                                    <div key={k} className="flex justify-between py-0.5">
-                                      <span style={{ color: "var(--muted)" }}>{k}</span>
-                                      <span style={{ color: "var(--foreground)" }}>{v as string}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
+                    {result.stocks.map((s) => {
+                      const chartData = miniCharts[s.ticker] ?? [];
+                      return (
+                        <tr key={s.ticker}
+                          style={{ borderBottom: "1px solid var(--card-border)" }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = "var(--card-alt,#1e293b10)")}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = "")}
+                        >
+                          {/* 순위 */}
+                          <td className="py-3 px-3">
+                            <span className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
+                              style={{
+                                background: s.rank <= 3 ? "var(--accent)" : "var(--card-border)",
+                                color: s.rank <= 3 ? "#fff" : "var(--muted)",
+                                display: "inline-flex",
+                              }}>
+                              {s.rank}
+                            </span>
+                          </td>
+                          {/* 종목명 */}
+                          <td className="py-3 px-3 font-medium">
+                            <Link href={`/stock?market=KR&ticker=${s.ticker}`}
+                              className="hover:underline" style={{ color: "var(--foreground)" }}>
+                              {s.name}
+                            </Link>
+                          </td>
+                          {/* 코드 */}
+                          <td className="py-3 px-3 font-mono text-xs" style={{ color: "var(--muted)" }}>
+                            {s.ticker}
+                          </td>
+                          {/* 시장 */}
+                          <td className="py-3 px-3 text-xs" style={{ color: "var(--muted)" }}>
+                            {s.market}
+                          </td>
+                          {/* 현재가 */}
+                          <td className="py-3 px-3 font-mono">{s.price.toLocaleString()}</td>
+                          {/* 등락 */}
+                          <td className="py-3 px-3 font-mono text-xs font-medium"
+                            style={{ color: s.change >= 0 ? "#ef4444" : "#3b82f6" }}>
+                            {s.change >= 0 ? "▲" : "▼"} {Math.abs(s.change).toFixed(2)}%
+                          </td>
+                          {/* 거래량 */}
+                          <td className="py-3 px-3 font-mono text-xs" style={{ color: "var(--muted)" }}>
+                            {s.volume.toLocaleString()}
+                          </td>
+                          {/* 섹터 */}
+                          <td className="py-3 px-3">
+                            <div className="flex flex-wrap gap-1">
+                              {s.sectors.slice(0, 2).map((sec) => (
+                                <span key={sec} className="text-xs px-1.5 py-0.5 rounded"
+                                  style={{ background: "#6366f120", color: "#818cf8" }}>
+                                  {sec}
+                                </span>
+                              ))}
                             </div>
-                          ) : (
-                            <span className="text-xs" style={{ color: "var(--muted)" }}>-</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          {/* 섹터 등락률 */}
+                          <td className="py-3 px-3 font-mono text-xs font-medium"
+                            style={{ color: s.sect_avg >= 0 ? "#ef4444" : "#3b82f6" }}>
+                            {s.sect_avg >= 0 ? "▲" : "▼"} {Math.abs(s.sect_avg).toFixed(2)}%
+                          </td>
+                          {/* 감성 */}
+                          <td className="py-3 px-3 whitespace-nowrap">
+                            <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                              style={{ background: "#10b98120", color: "#10b981" }}>
+                              😊 긍정
+                            </span>
+                          </td>
+                          {/* 패턴 */}
+                          <td className="py-3 px-3 whitespace-nowrap">
+                            {s.pattern ? (
+                              <div className="relative group inline-block">
+                                <span
+                                  className="text-xs px-2 py-0.5 rounded-full font-medium cursor-default"
+                                  style={{
+                                    background: s.pattern === "상승" ? "#ef444420" : s.pattern === "하락" ? "#3b82f620" : "#6b728020",
+                                    color:      s.pattern === "상승" ? "#ef4444"   : s.pattern === "하락" ? "#3b82f6"   : "#9ca3af",
+                                  }}
+                                >
+                                  {s.pattern === "상승" ? "📈" : s.pattern === "하락" ? "📉" : "➡️"} {s.pattern}
+                                  {s.pattern_score !== undefined && (
+                                    <span className="ml-1 opacity-60">({s.pattern_score > 0 ? "+" : ""}{s.pattern_score})</span>
+                                  )}
+                                </span>
+                                {s.pattern_signals && Object.keys(s.pattern_signals).length > 0 && (
+                                  <div
+                                    className="absolute z-10 hidden group-hover:block bottom-full left-0 mb-1 w-40 rounded-lg p-2 text-xs shadow-lg"
+                                    style={{ background: "var(--card)", border: "1px solid var(--card-border)" }}
+                                  >
+                                    {Object.entries(s.pattern_signals).map(([k, v]) => (
+                                      <div key={k} className="flex justify-between py-0.5">
+                                        <span style={{ color: "var(--muted)" }}>{k}</span>
+                                        <span style={{ color: "var(--foreground)" }}>{v as string}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-xs" style={{ color: "var(--muted)" }}>-</span>
+                            )}
+                          </td>
+                          {/* 차트 */}
+                          <td className="py-2 px-3" style={{ width: 140, maxWidth: 140, overflow: "hidden" }}>
+                            {chartsLoading || chartData.length === 0 ? (
+                              <div className="rounded animate-pulse"
+                                style={{ height: 75, background: "var(--card-border)" }} />
+                            ) : (
+                              <MiniSparkChart data={chartData} height={75} />
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

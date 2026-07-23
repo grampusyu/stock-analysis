@@ -35,35 +35,44 @@ def analyze_news_sentiment(articles: list[dict], stock_name: str) -> list[dict]:
 
 sentiment는 반드시 "긍정", "중립", "부정" 중 하나여야 합니다."""
 
-    try:
-        from google import genai
+    from google import genai
 
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model="gemini-flash-latest",
-            contents=prompt,
-        )
-        raw = response.text.strip()
-        start = raw.find("[")
-        end = raw.rfind("]") + 1
-        parsed: list[dict] = json.loads(raw[start:end])
+    client = genai.Client(api_key=api_key)
 
-        result = []
-        parsed_map = {item["index"]: item for item in parsed if "index" in item}
-        for i, article in enumerate(targets):
-            info = parsed_map.get(i, {})
-            sentiment = info.get("sentiment", "중립")
-            if sentiment not in ("긍정", "중립", "부정"):
-                sentiment = "중립"
-            result.append({
-                **article,
-                "sentiment": sentiment,
-                "reason": info.get("reason", ""),
-            })
-        return result
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=prompt,
+            )
+            raw = response.text.strip()
+            start = raw.find("[")
+            end = raw.rfind("]") + 1
+            parsed: list[dict] = json.loads(raw[start:end])
 
-    except Exception as e:
-        return [{**a, "sentiment": "중립", "reason": f"분석 오류: {e}"} for a in targets]
+            result = []
+            parsed_map = {item["index"]: item for item in parsed if "index" in item}
+            for i, article in enumerate(targets):
+                info = parsed_map.get(i, {})
+                sentiment = info.get("sentiment", "중립")
+                if sentiment not in ("긍정", "중립", "부정"):
+                    sentiment = "중립"
+                result.append({
+                    **article,
+                    "sentiment": sentiment,
+                    "reason": info.get("reason", ""),
+                })
+            return result
+
+        except Exception as e:
+            err = str(e)
+            if ("429" in err or "resource_exhausted" in err.lower()) and attempt < 2:
+                time.sleep(5 * (attempt + 1))  # 5초, 10초 후 재시도
+                continue
+            reason = "API 사용 한도 초과 — 잠시 후 재시도" if "429" in err or "resource_exhausted" in err.lower() else f"분석 오류: {e}"
+            return [{**a, "sentiment": "중립", "reason": reason} for a in targets]
+
+    return [{**a, "sentiment": "중립", "reason": "API 사용 한도 초과 — 잠시 후 재시도"} for a in targets]
 
 
 def get_sentiment_cached(market: str, ticker: str, stock_name: str, articles: list[dict]) -> list[dict]:
@@ -76,6 +85,9 @@ def get_sentiment_cached(market: str, ticker: str, stock_name: str, articles: li
                 return data
 
     result = analyze_news_sentiment(articles, stock_name)
-    with _cache_lock:
-        _cache[key] = (time.time(), result)
+    # 에러 결과는 캐시 안 함 → 재시도 가능
+    is_error = result and any("한도 초과" in a.get("reason", "") or "분석 오류" in a.get("reason", "") for a in result)
+    if not is_error:
+        with _cache_lock:
+            _cache[key] = (time.time(), result)
     return result

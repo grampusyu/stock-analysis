@@ -148,6 +148,7 @@ export default function SectorStocksPanel({ market, sector, period = "1y", onClo
                   <StockChart
                     data={chartData}
                     height={160}
+                    market={market}
                     priceFormatter={market === "KR" ? (p) => Math.round(p).toLocaleString() : undefined}
                   />
                 ) : (

@@ -13,9 +13,10 @@ interface Props {
   data: OHLCVRecord[];
   height?: number;
   priceFormatter?: (price: number) => string;
+  market?: string;
 }
 
-export default function StockChart({ data, height = 400, priceFormatter }: Props) {
+export default function StockChart({ data, height = 400, priceFormatter, market }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
 
@@ -40,13 +41,17 @@ export default function StockChart({ data, height = 400, priceFormatter }: Props
 
     chartRef.current = chart;
 
+    // 한국: 빨강=상승, 파랑=하락 / 미국: 초록=상승, 빨강=하락
+    const upColor   = market === "KR" ? "#ef4444" : "#10b981";
+    const downColor = market === "KR" ? "#3b82f6" : "#ef4444";
+
     const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: "#10b981",
-      downColor: "#ef4444",
-      borderUpColor: "#10b981",
-      borderDownColor: "#ef4444",
-      wickUpColor: "#10b981",
-      wickDownColor: "#ef4444",
+      upColor,
+      downColor,
+      borderUpColor: upColor,
+      borderDownColor: downColor,
+      wickUpColor: upColor,
+      wickDownColor: downColor,
     });
 
     candleSeries.setData(

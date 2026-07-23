@@ -1,11 +1,13 @@
 """Gemini API를 이용한 기업 개요·전망 생성 서비스."""
 import os
 import json
+import time
 import threading
 from typing import Optional
 
-_cache: dict[str, dict] = {}
+_cache: dict[str, tuple[float, dict]] = {}
 _cache_lock = threading.Lock()
+_CACHE_TTL = 3600  # 1시간
 
 
 def _find_kr_sector(ticker: str) -> Optional[str]:
@@ -26,9 +28,12 @@ def _find_us_sector(ticker: str) -> Optional[str]:
 
 def get_company_overview(market: str, ticker: str, company_name: str) -> dict:
     cache_key = f"{market}:{ticker}"
+    now = time.time()
     with _cache_lock:
         if cache_key in _cache:
-            return _cache[cache_key]
+            ts, data = _cache[cache_key]
+            if now - ts < _CACHE_TTL:
+                return data
 
     market = market.upper()
 
@@ -59,12 +64,7 @@ def get_company_overview(market: str, ticker: str, company_name: str) -> dict:
             _cache[cache_key] = result
         return result
 
-    try:
-        from google import genai
-
-        client = genai.Client(api_key=api_key)
-
-        prompt = f"""다음 기업에 대해 한국어로 간결하게 설명해주세요.
+    prompt = f"""다음 기업에 대해 한국어로 간결하게 설명해주세요.
 
 기업명: {company_name}
 종목코드: {ticker}
@@ -77,33 +77,55 @@ def get_company_overview(market: str, ticker: str, company_name: str) -> dict:
   "outlook": "해당 산업 트렌드와 기업의 성장 가능성, 주요 리스크를 포함한 앞으로의 전망 2-3문장"
 }}"""
 
-        response = client.models.generate_content(
-            model="gemini-flash-latest",
-            contents=prompt,
-        )
-        raw = response.text.strip()
-        start = raw.find("{")
-        end = raw.rfind("}") + 1
-        parsed = json.loads(raw[start:end])
+    from google import genai
+    client = genai.Client(api_key=api_key)
 
+    result = None
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=prompt,
+            )
+            raw = response.text.strip()
+            start = raw.find("{")
+            end = raw.rfind("}") + 1
+            parsed = json.loads(raw[start:end])
+
+            result = {
+                "ticker": ticker,
+                "name": company_name,
+                "sector": sector,
+                "description": parsed.get("description", ""),
+                "outlook": parsed.get("outlook", ""),
+                "error": None,
+            }
+            break
+        except Exception as e:
+            err = str(e)
+            if ("429" in err or "resource_exhausted" in err.lower()) and attempt < 2:
+                time.sleep(5 * (attempt + 1))
+                continue
+            is_rate_limit = "429" in err or "resource_exhausted" in err.lower()
+            result = {
+                "ticker": ticker,
+                "name": company_name,
+                "sector": sector,
+                "description": None,
+                "outlook": None,
+                "error": "API 사용 한도 초과 — 잠시 후 다시 시도해주세요." if is_rate_limit else err,
+            }
+            break
+
+    if result is None:
         result = {
-            "ticker": ticker,
-            "name": company_name,
-            "sector": sector,
-            "description": parsed.get("description", ""),
-            "outlook": parsed.get("outlook", ""),
-            "error": None,
-        }
-    except Exception as e:
-        result = {
-            "ticker": ticker,
-            "name": company_name,
-            "sector": sector,
-            "description": None,
-            "outlook": None,
-            "error": str(e),
+            "ticker": ticker, "name": company_name, "sector": sector,
+            "description": None, "outlook": None,
+            "error": "API 사용 한도 초과 — 잠시 후 다시 시도해주세요.",
         }
 
-    with _cache_lock:
-        _cache[cache_key] = result
+    # 성공 결과만 캐시 (에러는 캐시 안 함 → 재시도 가능)
+    if result["error"] is None:
+        with _cache_lock:
+            _cache[cache_key] = (time.time(), result)
     return result
