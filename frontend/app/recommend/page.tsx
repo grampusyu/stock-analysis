@@ -3,6 +3,14 @@ import { useState } from "react";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 
+interface PatternSignals {
+  MA?: string;
+  RSI?: string;
+  MACD?: string;
+  BB?: string;
+  VOL?: string;
+}
+
 interface Stock {
   rank: number;
   ticker: string;
@@ -16,6 +24,9 @@ interface Stock {
   marcap: number;
   score: number;
   sentiment: string;
+  pattern?: string;
+  pattern_score?: number;
+  pattern_signals?: PatternSignals;
 }
 
 interface RecommendResult {
@@ -176,7 +187,7 @@ export default function RecommendPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr style={{ borderBottom: "1px solid var(--card-border)" }}>
-                      {["순위", "종목명", "코드", "시장", "현재가", "등락", "거래량", "섹터", "섹터 등락", "감성"].map((h) => (
+                      {["순위", "종목명", "코드", "시장", "현재가", "등락", "거래량", "섹터", "섹터 등락", "감성", "패턴"].map((h) => (
                         <th key={h} className="text-left py-2 px-3 text-xs font-medium"
                           style={{ color: "var(--muted)" }}>{h}</th>
                       ))}
@@ -246,6 +257,41 @@ export default function RecommendPage() {
                             style={{ background: "#10b98120", color: "#10b981" }}>
                             😊 긍정
                           </span>
+                        </td>
+                        {/* 패턴 */}
+                        <td className="py-3 px-3">
+                          {s.pattern ? (
+                            <div className="relative group inline-block">
+                              <span
+                                className="text-xs px-2 py-0.5 rounded-full font-medium cursor-default"
+                                style={{
+                                  background: s.pattern === "상승" ? "#10b98120" : s.pattern === "하락" ? "#ef444420" : "#6b728020",
+                                  color:      s.pattern === "상승" ? "#10b981"   : s.pattern === "하락" ? "#ef4444"   : "#9ca3af",
+                                }}
+                              >
+                                {s.pattern === "상승" ? "📈" : s.pattern === "하락" ? "📉" : "➡️"} {s.pattern}
+                                {s.pattern_score !== undefined && (
+                                  <span className="ml-1 opacity-60">({s.pattern_score > 0 ? "+" : ""}{s.pattern_score})</span>
+                                )}
+                              </span>
+                              {/* 툴팁 */}
+                              {s.pattern_signals && Object.keys(s.pattern_signals).length > 0 && (
+                                <div
+                                  className="absolute z-10 hidden group-hover:block bottom-full left-0 mb-1 w-40 rounded-lg p-2 text-xs shadow-lg"
+                                  style={{ background: "var(--card)", border: "1px solid var(--card-border)" }}
+                                >
+                                  {Object.entries(s.pattern_signals).map(([k, v]) => (
+                                    <div key={k} className="flex justify-between py-0.5">
+                                      <span style={{ color: "var(--muted)" }}>{k}</span>
+                                      <span style={{ color: "var(--foreground)" }}>{v as string}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-xs" style={{ color: "var(--muted)" }}>-</span>
+                          )}
                         </td>
                       </tr>
                     ))}
