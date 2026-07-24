@@ -388,7 +388,7 @@ export default function WatchlistPage() {
                           {item.volume != null ? item.volume.toLocaleString() : "-"}
                         </td>
                         <td className="py-3 px-3">
-                          {sentiment && sentiment !== "loading" ? (
+                          {sentiment && sentiment !== "loading" && sentiment !== "error" ? (
                             <button
                               onClick={() => analyzeSentiment(item)}
                               className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all"
@@ -461,7 +461,7 @@ export default function WatchlistPage() {
                       </tr>
 
                       {/* 감성 분석 펼침 패널 */}
-                      {isExpanded && sentiment && sentiment !== "loading" && (
+                      {isExpanded && sentiment && sentiment !== "loading" && sentiment !== "error" && (
                         <tr style={{ borderBottom: "1px solid var(--card-border)" }}>
                           <td colSpan={9} className="px-4 pb-4 pt-1">
                             <div className="rounded-lg p-4 space-y-3" style={{ background: "var(--background)", border: "1px solid var(--card-border)" }}>

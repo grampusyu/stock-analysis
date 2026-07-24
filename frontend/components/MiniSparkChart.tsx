@@ -33,7 +33,7 @@ export default function MiniSparkChart({ data, height = 110, market }: Props) {
       rightPriceScale: { visible: false },
       leftPriceScale:  { visible: false },
       timeScale:  { visible: false, borderVisible: false },
-      watermark:    { visible: false },
+
       handleScroll: false,
       handleScale:  false,
       width:  ref.current.clientWidth,

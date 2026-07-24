@@ -8,8 +8,8 @@ start "Backend" cmd /k "cd /d D:\02_Project\stock-analysis\backend && C:\Users\Y
 
 timeout /t 3 /nobreak > nul
 
-echo [2] 프론트엔드 (Next.js) 시작...
-start "Frontend" cmd /k "cd /d D:\02_Project\stock-analysis\frontend && npm run dev"
+echo [2] 프론트엔드 (Next.js 프로덕션) 시작...
+start "Frontend" cmd /k "cd /d D:\02_Project\stock-analysis\frontend && npm run start"
 
 timeout /t 3 /nobreak > nul
 
