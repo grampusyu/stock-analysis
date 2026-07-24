@@ -3,10 +3,12 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_URL
   : "/api";
 export const WS_BASE = process.env.NEXT_PUBLIC_WS_URL ?? "";
 
+export const NGROK_HEADER: HeadersInit = { "ngrok-skip-browser-warning": "true" };
+
 const BASE = API_BASE;
 
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { cache: "no-store" });
+  const res = await fetch(`${BASE}${path}`, { cache: "no-store", headers: NGROK_HEADER });
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
 }
@@ -136,12 +138,12 @@ export const api = {
   addHolding: (h: Omit<Holding, "current_price" | "profit_pct" | "total_value" | "name">) =>
     fetch(`${BASE}/portfolio/add`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...NGROK_HEADER },
       body: JSON.stringify(h),
     }).then((r) => r.json()),
 
   removeHolding: (market: Market, ticker: string) =>
-    fetch(`${BASE}/portfolio/remove/${market}/${ticker}`, { method: "DELETE" }).then((r) => r.json()),
+    fetch(`${BASE}/portfolio/remove/${market}/${ticker}`, { method: "DELETE", headers: NGROK_HEADER }).then((r) => r.json()),
 
   getMarketSummary: () =>
     get<{ KOSPI: { close: number; change_pct: number }; KOSDAQ: { close: number; change_pct: number } }>(

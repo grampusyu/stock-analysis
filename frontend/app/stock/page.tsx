@@ -5,7 +5,7 @@ import Navbar from "@/components/Navbar";
 import StockChart from "@/components/StockChart";
 import FundFlowChart from "@/components/FundFlowChart";
 import FinancialsPanel from "@/components/FinancialsPanel";
-import { api, Market, Period, OHLCVRecord, TechnicalSummary, PredictionResult, FinancialData, CompanyOverview, NewsArticle, API_BASE, WS_BASE } from "@/lib/api";
+import { api, Market, Period, OHLCVRecord, TechnicalSummary, PredictionResult, FinancialData, CompanyOverview, NewsArticle, API_BASE, WS_BASE, NGROK_HEADER } from "@/lib/api";
 
 const PERIODS: Period[] = ["1m", "3m", "6m", "1y", "3y"];
 const PERIOD_LABEL: Record<Period, string> = { "1m": "1개월", "3m": "3개월", "6m": "6개월", "1y": "1년", "3y": "3년" };
@@ -95,7 +95,7 @@ function StockContent() {
     if (fromSuggestions) return fromSuggestions.ticker;
     // 없으면 API 호출
     try {
-      const res = await fetch(`${API_BASE}/stocks/search/KR?q=${encodeURIComponent(trimmed)}`);
+      const res = await fetch(`${API_BASE}/stocks/search/KR?q=${encodeURIComponent(trimmed)}`, { headers: NGROK_HEADER });
       const data = await res.json();
       if (data.results?.length > 0) return data.results[0].ticker;
     } catch { /* ignore */ }
@@ -258,7 +258,7 @@ function StockContent() {
     }
     searchDebounce.current = setTimeout(async () => {
       try {
-        const res = await fetch(`${API_BASE}/stocks/search/${market}?q=${encodeURIComponent(value)}`);
+        const res = await fetch(`${API_BASE}/stocks/search/${market}?q=${encodeURIComponent(value)}`, { headers: NGROK_HEADER });
         const data = await res.json();
         setSuggestions(data.results ?? []);
         setShowSuggestions((data.results ?? []).length > 0);
@@ -279,7 +279,7 @@ function StockContent() {
     if (market !== "KR") return;
     const fetchStatus = async () => {
       try {
-        const res = await fetch(`${API_BASE}/stocks/search-status`);
+        const res = await fetch(`${API_BASE}/stocks/search-status`, { headers: NGROK_HEADER });
         const data = await res.json();
         setKrMapStatus({
           fullMapReady: data.full_map_ready,

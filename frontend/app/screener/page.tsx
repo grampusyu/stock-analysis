@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
-import { API_BASE } from "@/lib/api";
+import { API_BASE, NGROK_HEADER } from "@/lib/api";
 
 interface ScreenerResult {
   ticker: string;
@@ -101,7 +101,7 @@ export default function ScreenerPage() {
     setSearched(false);
     const start = Date.now();
     try {
-      const res = await fetch(`${API_BASE}/screener/kr?${buildQuery(f)}`);
+      const res = await fetch(`${API_BASE}/screener/kr?${buildQuery(f)}`, { headers: NGROK_HEADER });
       const data = await res.json();
       setResults(data.results ?? []);
       setTotal(data.total ?? 0);

@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
-import { API_BASE } from "@/lib/api";
+import { API_BASE, NGROK_HEADER } from "@/lib/api";
 import type { OHLCVRecord } from "@/lib/api";
 
 const MiniSparkChart = dynamic(() => import("@/components/MiniSparkChart"), { ssr: false });
@@ -81,7 +81,8 @@ export default function RecommendPage() {
       result.stocks.map(async (s) => {
         try {
           const res = await fetch(
-            `${API_BASE}/stocks/chart/KR/${s.ticker}?period=${chartPeriod}&interval=daily`
+            `${API_BASE}/stocks/chart/KR/${s.ticker}?period=${chartPeriod}&interval=daily`,
+            { headers: NGROK_HEADER }
           );
           if (!res.ok) return [s.ticker, []] as [string, OHLCVRecord[]];
           const data = await res.json();
@@ -112,7 +113,7 @@ export default function RecommendPage() {
 
     try {
       const url = `${API_BASE}/recommend/kr${refresh ? "?refresh=true" : ""}`;
-      const res = await fetch(url);
+      const res = await fetch(url, { headers: NGROK_HEADER });
       if (!res.ok) throw new Error(`서버 오류 (${res.status})`);
       const data = await res.json();
       setResult(data);

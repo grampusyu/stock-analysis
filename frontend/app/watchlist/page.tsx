@@ -3,7 +3,7 @@ import { Fragment, useState, useEffect, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
-import { api, Market, API_BASE } from "@/lib/api";
+import { api, Market, API_BASE, NGROK_HEADER } from "@/lib/api";
 import type { OHLCVRecord } from "@/lib/api";
 
 const MiniSparkChart = dynamic(() => import("@/components/MiniSparkChart"), { ssr: false });
@@ -85,7 +85,7 @@ export default function WatchlistPage() {
   const fetchList = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/watchlist`);
+      const res = await fetch(`${API_BASE}/watchlist`, { headers: NGROK_HEADER });
       const data = await res.json();
       setItems(data.items ?? []);
     } catch {
@@ -106,7 +106,8 @@ export default function WatchlistPage() {
         const key = `${item.market}:${item.ticker}`;
         try {
           const res = await fetch(
-            `${API_BASE}/stocks/chart/${item.market}/${item.ticker}?period=${chartPeriod}&interval=daily`
+            `${API_BASE}/stocks/chart/${item.market}/${item.ticker}?period=${chartPeriod}&interval=daily`,
+            { headers: NGROK_HEADER }
           );
           if (!res.ok) return [key, []] as [string, OHLCVRecord[]];
           const data = await res.json();
@@ -150,7 +151,7 @@ export default function WatchlistPage() {
     try {
       await fetch(`${API_BASE}/watchlist`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...NGROK_HEADER },
         body: JSON.stringify({ market, ticker: tickerCode }),
       });
       setInput("");
@@ -177,6 +178,7 @@ export default function WatchlistPage() {
   const remove = async (item: WatchItem) => {
     await fetch(`${API_BASE}/watchlist/${item.market}/${item.ticker}`, {
       method: "DELETE",
+      headers: NGROK_HEADER,
     });
     setSentimentMap((prev) => {
       const next = { ...prev };
@@ -192,7 +194,8 @@ export default function WatchlistPage() {
     setSentimentMap((prev) => ({ ...prev, [key]: "loading" }));
     try {
       const res = await fetch(
-        `${API_BASE}/news/sentiment/${item.market}/${item.ticker}`
+        `${API_BASE}/news/sentiment/${item.market}/${item.ticker}`,
+        { headers: NGROK_HEADER }
       );
       if (!res.ok) throw new Error(`서버 오류 (${res.status})`);
       const data = await res.json();
