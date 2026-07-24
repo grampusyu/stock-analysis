@@ -19,6 +19,10 @@ proxy.on("error", (err, req, res) => {
 });
 
 app.prepare().then(() => {
+  // Next.js 내부 WebSocket 업그레이드 핸들러 (HMR 등)
+  const upgradeHandler =
+    typeof app.getUpgradeHandler === "function" ? app.getUpgradeHandler() : null;
+
   const server = createServer((req, res) => {
     const parsedUrl = parse(req.url, true);
     if (parsedUrl.pathname.startsWith("/api/")) {
@@ -28,13 +32,15 @@ app.prepare().then(() => {
     }
   });
 
-  // WebSocket 프록시 (/api/realtime/ws/*)
   server.on("upgrade", (req, socket, head) => {
     if (req.url.startsWith("/api/")) {
+      // 백엔드 실시간 WebSocket 프록시
       proxy.ws(req, socket, head, { target: BACKEND });
-    } else {
-      socket.destroy();
+    } else if (upgradeHandler) {
+      // Next.js HMR / 내부 WebSocket 처리
+      upgradeHandler(req, socket, head);
     }
+    // upgradeHandler 없으면 무시 (연결이 자연히 닫힘)
   });
 
   server.listen(port, () => {
