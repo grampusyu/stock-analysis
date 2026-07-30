@@ -1,6 +1,10 @@
+const isServer = typeof window === "undefined";
+
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL
   ? process.env.NEXT_PUBLIC_API_URL + "/api"
-  : "/api";
+  : isServer
+    ? (process.env.BACKEND_URL || "http://localhost:8000") + "/api"
+    : "/api";
 export const WS_BASE = process.env.NEXT_PUBLIC_WS_URL ?? "";
 
 export const NGROK_HEADER: HeadersInit = { "ngrok-skip-browser-warning": "true" };
