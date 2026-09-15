@@ -63,6 +63,7 @@ def _build_theme_map() -> dict[str, str]:
 
 
 TICKER_THEME_MAP = _build_theme_map()
+THEME_NAMES = set(SECTOR_STOCKS.get("KR", {}).keys())
 
 # DART induty_code는 회사가 등록 시점에 신고한 값이 그대로 남아있어, 이후 주력 사업을
 # 바꾼 회사는 실제 업종과 다르게 표시되는 경우가 있다(예: 파미셀은 등록 코드가 여전히
@@ -152,19 +153,22 @@ def get_financial_grade(
     code: str = Query(None, description="특정 종목코드로 단건 조회(다른 필터 무시)"),
     limit: int = Query(200),
 ):
+    empty_sectors = {"theme_sector_counts": {}, "industry_sector_counts": {}}
     records, date_str = _load()
     if date_str is None:
-        return {"results": [], "total": 0, "date": None, "tier_counts": {}, "sector_counts": {}}
+        return {"results": [], "total": 0, "date": None, "tier_counts": {}, **empty_sectors}
 
     if code:
         matched = [r for r in records if r.get("code") == code]
-        return {"results": matched, "total": len(matched), "date": date_str, "tier_counts": {}, "sector_counts": {}}
+        return {"results": matched, "total": len(matched), "date": date_str, "tier_counts": {}, **empty_sectors}
 
     tier_counts: dict[str, int] = {}
-    sector_counts: dict[str, int] = {}
+    theme_sector_counts: dict[str, int] = {}
+    industry_sector_counts: dict[str, int] = {}
     for r in records:
         tier_counts[r["tier"]] = tier_counts.get(r["tier"], 0) + 1
-        sector_counts[r["sector"]] = sector_counts.get(r["sector"], 0) + 1
+        counts = theme_sector_counts if r["sector"] in THEME_NAMES else industry_sector_counts
+        counts[r["sector"]] = counts.get(r["sector"], 0) + 1
 
     if market != "ALL":
         records = [r for r in records if r.get("market") == market]
@@ -180,7 +184,8 @@ def get_financial_grade(
         "total": len(records),
         "date": date_str,
         "tier_counts": tier_counts,
-        "sector_counts": dict(sorted(sector_counts.items(), key=lambda kv: kv[1], reverse=True)),
+        "theme_sector_counts": dict(sorted(theme_sector_counts.items(), key=lambda kv: kv[1], reverse=True)),
+        "industry_sector_counts": dict(sorted(industry_sector_counts.items(), key=lambda kv: kv[1], reverse=True)),
     }
 
 

@@ -291,7 +291,8 @@ export const api = {
       total: number;
       date: string | null;
       tier_counts: Record<string, number>;
-      sector_counts: Record<string, number>;
+      theme_sector_counts: Record<string, number>;
+      industry_sector_counts: Record<string, number>;
     }>(
       `/financial-grade?market=${market}&tier=${encodeURIComponent(tier)}&sector=${encodeURIComponent(sector)}` +
         `&undervalued_only=${undervaluedOnly}&limit=${limit}`

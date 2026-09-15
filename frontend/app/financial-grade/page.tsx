@@ -98,7 +98,8 @@ export default function FinancialGradePage() {
   const [total, setTotal] = useState(0);
   const [date, setDate] = useState<string | null>(null);
   const [tierCounts, setTierCounts] = useState<Record<string, number>>({});
-  const [sectorCounts, setSectorCounts] = useState<Record<string, number>>({});
+  const [themeSectorCounts, setThemeSectorCounts] = useState<Record<string, number>>({});
+  const [industrySectorCounts, setIndustrySectorCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [expandedCode, setExpandedCode] = useState<string | null>(null);
@@ -177,13 +178,15 @@ export default function FinancialGradePage() {
       setTotal(data.total ?? 0);
       setDate(data.date ?? null);
       setTierCounts(data.tier_counts ?? {});
-      setSectorCounts(data.sector_counts ?? {});
+      setThemeSectorCounts(data.theme_sector_counts ?? {});
+      setIndustrySectorCounts(data.industry_sector_counts ?? {});
     } catch {
       setResults([]);
       setTotal(0);
       setDate(null);
       setTierCounts({});
-      setSectorCounts({});
+      setThemeSectorCounts({});
+      setIndustrySectorCounts({});
     } finally {
       setLoading(false);
     }
@@ -285,11 +288,20 @@ export default function FinancialGradePage() {
                 style={{ borderColor: "var(--card-border)", background: "var(--card)", color: "var(--foreground)" }}
               >
                 <option value="ALL">업종 전체</option>
-                {Object.entries(sectorCounts).map(([name, count]) => (
-                  <option key={name} value={name}>
-                    {name} ({count})
-                  </option>
-                ))}
+                <optgroup label="테마">
+                  {Object.entries(themeSectorCounts).map(([name, count]) => (
+                    <option key={name} value={name}>
+                      {name} ({count})
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="업종(KSIC)">
+                  {Object.entries(industrySectorCounts).map(([name, count]) => (
+                    <option key={name} value={name}>
+                      {name} ({count})
+                    </option>
+                  ))}
+                </optgroup>
               </select>
             )}
 
