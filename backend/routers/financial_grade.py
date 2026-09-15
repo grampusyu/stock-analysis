@@ -44,6 +44,14 @@ def _load_sector_map() -> dict[str, str]:
 
 SECTOR_MAP = _load_sector_map()
 
+# DART induty_code는 회사가 등록 시점에 신고한 값이 그대로 남아있어, 이후 주력 사업을
+# 바꾼 회사는 실제 업종과 다르게 표시되는 경우가 있다(예: 파미셀은 등록 코드가 여전히
+# "262 전자 부품 제조업"이지만 현재는 줄기세포 치료제 회사). 사용자가 발견한 오류를
+# 종목코드 단위로 여기에 수동 보정한다.
+SECTOR_OVERRIDES: dict[str, str] = {
+    "005690": "의료용 물질 및 의약품 제조업",  # 파미셀: 등록 코드(262 전자 부품 제조업)가 사업 전환 전 기준으로 남아있음
+}
+
 
 def _init_favorites_db():
     with sqlite3.connect(FAV_DB_PATH) as conn:
@@ -91,10 +99,16 @@ def _load() -> tuple[list[dict], str | None]:
         if cached and cached["mtime"] == mtime and now - cached["ts"] < CACHE_TTL:
             return cached["records"], cached["date"]
 
-    df = pd.read_csv(path, encoding="utf-8-sig", dtype={"code": str})
+    df = pd.read_csv(path, encoding="utf-8-sig", dtype={"code": str, "induty_code": str})
     if "sparkline" in df.columns:
         df["sparkline"] = df["sparkline"].apply(lambda v: json.loads(v) if isinstance(v, str) else None)
     df["tier"] = pd.Categorical(df["tier"], categories=TIER_ORDER, ordered=True)
+    # induty_code(3~5자리 KSIC 세분류)는 490여 개로 필터 드롭다운에 쓰기엔 너무 세분화되어
+    # 있어서, 앞 2자리(KSIC 중분류/division, 전체 77개 중 실제로는 약 60개만 등장)로
+    # 묶어 "업종" 필터 단위로 쓴다.
+    division_code = df["induty_code"].fillna("").astype(str).str.slice(0, 2)
+    df["sector"] = division_code.map(SECTOR_MAP).fillna("기타")
+    df["sector"] = df["code"].map(SECTOR_OVERRIDES).fillna(df["sector"])
     df = df.sort_values(["tier", "score"], ascending=[True, False])
     df = df.astype(object).where(pd.notnull(df), None)  # NaN -> None (Starlette JSONResponse는 NaN을 허용 안 함)
     records = df.to_dict(orient="records")
@@ -109,24 +123,29 @@ def _load() -> tuple[list[dict], str | None]:
 def get_financial_grade(
     market: str = Query("ALL", description="KOSPI | KOSDAQ | ALL"),
     tier: str = Query("ALL", description="최상 | 상 | 중 | 하 | 최하 | ALL"),
+    sector: str = Query("ALL", description="업종명(KSIC) | ALL"),
     undervalued_only: bool = Query(False),
     code: str = Query(None, description="특정 종목코드로 단건 조회(다른 필터 무시)"),
     limit: int = Query(200),
 ):
     records, date_str = _load()
     if date_str is None:
-        return {"results": [], "total": 0, "date": None, "tier_counts": {}}
+        return {"results": [], "total": 0, "date": None, "tier_counts": {}, "sector_counts": {}}
 
     if code:
         matched = [r for r in records if r.get("code") == code]
-        return {"results": matched, "total": len(matched), "date": date_str, "tier_counts": {}}
+        return {"results": matched, "total": len(matched), "date": date_str, "tier_counts": {}, "sector_counts": {}}
 
     tier_counts: dict[str, int] = {}
+    sector_counts: dict[str, int] = {}
     for r in records:
         tier_counts[r["tier"]] = tier_counts.get(r["tier"], 0) + 1
+        sector_counts[r["sector"]] = sector_counts.get(r["sector"], 0) + 1
 
     if market != "ALL":
         records = [r for r in records if r.get("market") == market]
+    if sector != "ALL":
+        records = [r for r in records if r.get("sector") == sector]
     if tier != "ALL":
         records = [r for r in records if r.get("tier") == tier]
     if undervalued_only:
@@ -137,6 +156,7 @@ def get_financial_grade(
         "total": len(records),
         "date": date_str,
         "tier_counts": tier_counts,
+        "sector_counts": dict(sorted(sector_counts.items(), key=lambda kv: kv[1], reverse=True)),
     }
 
 

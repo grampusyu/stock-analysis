@@ -91,12 +91,14 @@ export default function FinancialGradePage() {
   const [view, setView] = useState<ViewMode>("all");
   const [market, setMarket] = useState<MarketFilter>("ALL");
   const [tier, setTier] = useState<TierFilter>("ALL");
+  const [sector, setSector] = useState<string>("ALL");
   const [undervaluedOnly, setUndervaluedOnly] = useState(false);
   const [chartOnly, setChartOnly] = useState(true);
   const [results, setResults] = useState<FinancialGradeRow[]>([]);
   const [total, setTotal] = useState(0);
   const [date, setDate] = useState<string | null>(null);
   const [tierCounts, setTierCounts] = useState<Record<string, number>>({});
+  const [sectorCounts, setSectorCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [expandedCode, setExpandedCode] = useState<string | null>(null);
@@ -168,18 +170,20 @@ export default function FinancialGradePage() {
       // tier/undervalued 필터를 해제하고 전체 유니버스를 가져와 클라이언트에서 걸러낸다.
       const opts =
         view === "favorites"
-          ? { market, tier: "ALL" as const, undervaluedOnly: false, limit: 5000 }
-          : { market, tier, undervaluedOnly, limit: 200 };
+          ? { market, tier: "ALL" as const, sector: "ALL", undervaluedOnly: false, limit: 5000 }
+          : { market, tier, sector, undervaluedOnly, limit: 200 };
       const data = await api.getFinancialGrade(opts);
       setResults(data.results ?? []);
       setTotal(data.total ?? 0);
       setDate(data.date ?? null);
       setTierCounts(data.tier_counts ?? {});
+      setSectorCounts(data.sector_counts ?? {});
     } catch {
       setResults([]);
       setTotal(0);
       setDate(null);
       setTierCounts({});
+      setSectorCounts({});
     } finally {
       setLoading(false);
     }
@@ -188,7 +192,7 @@ export default function FinancialGradePage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [market, tier, undervaluedOnly, view]);
+  }, [market, tier, sector, undervaluedOnly, view]);
 
   const base = view === "favorites" ? results.filter((r) => favorites.has(favKey(r))) : results;
   const filtered = chartOnly ? base.filter((r) => r.sparkline && r.sparkline.length >= 2) : base;
@@ -274,6 +278,22 @@ export default function FinancialGradePage() {
             )}
 
             {view === "all" && (
+              <select
+                value={sector}
+                onChange={(e) => setSector(e.target.value)}
+                className="text-xs font-medium rounded-lg border px-2 py-1.5"
+                style={{ borderColor: "var(--card-border)", background: "var(--card)", color: "var(--foreground)" }}
+              >
+                <option value="ALL">업종 전체</option>
+                {Object.entries(sectorCounts).map(([name, count]) => (
+                  <option key={name} value={name}>
+                    {name} ({count})
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {view === "all" && (
               <label className="flex items-center gap-2 text-xs font-medium cursor-pointer select-none" style={{ color: "var(--muted)" }}>
                 <input
                   type="checkbox"
@@ -341,7 +361,10 @@ export default function FinancialGradePage() {
                             {r.market}
                           </span>
                         </div>
-                        <span className="font-mono text-xs" style={{ color: "var(--muted)" }}>{r.code}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono text-xs" style={{ color: "var(--muted)" }}>{r.code}</span>
+                          <span className="text-xs truncate" style={{ color: "var(--muted)" }}>· {r.sector}</span>
+                        </div>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         <button

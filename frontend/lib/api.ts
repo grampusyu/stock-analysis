@@ -164,6 +164,7 @@ export interface FinancialGradeRow {
   name: string;
   market: string;
   induty_code: string;
+  sector: string;
   score: number;
   tier: FinancialTier;
   roe: number | null;
@@ -280,16 +281,21 @@ export const api = {
   getFinancialGrade: (opts: {
     market?: "ALL" | "KOSPI" | "KOSDAQ";
     tier?: "ALL" | FinancialTier;
+    sector?: string;
     undervaluedOnly?: boolean;
     limit?: number;
   } = {}) => {
-    const { market = "ALL", tier = "ALL", undervaluedOnly = false, limit = 200 } = opts;
+    const { market = "ALL", tier = "ALL", sector = "ALL", undervaluedOnly = false, limit = 200 } = opts;
     return get<{
       results: FinancialGradeRow[];
       total: number;
       date: string | null;
       tier_counts: Record<string, number>;
-    }>(`/financial-grade?market=${market}&tier=${encodeURIComponent(tier)}&undervalued_only=${undervaluedOnly}&limit=${limit}`);
+      sector_counts: Record<string, number>;
+    }>(
+      `/financial-grade?market=${market}&tier=${encodeURIComponent(tier)}&sector=${encodeURIComponent(sector)}` +
+        `&undervalued_only=${undervaluedOnly}&limit=${limit}`
+    );
   },
 
   getFinancialGradeByCode: (code: string) =>
