@@ -21,15 +21,14 @@ const fmt = (v: number) => {
   return `${v.toFixed(0)}주`;
 };
 
-// 일반적인 종목은 이 범위(±50만주)로 축을 고정해 종목 간 비교가 쉽도록 하고,
-// 이 범위를 벗어나는 대형주나 지나치게 작은 초소형주는 실제 변동폭에 맞춘
-// 동적 범위로 전환한다. 두 경우를 축 글자색으로 구분해 표시.
-// (임시 기준값 — 실데이터 확인 후 조정 필요할 수 있음)
-const STATIC_DOMAIN = 500_000;
-const LOW_VOLUME_RATIO = 0.1; // 정적 범위의 10% 미만이면 그래프가 거의 안 보여 동적 전환
+// 종목을 순매매 수량 변동폭 기준 소형/중형/대형 3단계로 나눈다. 중형(5만~15만주)만
+// 축을 ±15만주로 고정해 종목 간 비교가 쉽도록 하고, 그 밖(소형/대형)은 실제
+// 변동폭에 맞춘 동적 범위로 전환한다. 세 경우를 축 글자색으로 구분해 표시.
+const MID_MIN_VOLUME = 50_000; // 소형/중형 경계
+const MID_MAX_VOLUME = 150_000; // 중형/대형 경계 (중형 고정 축 범위이기도 함)
 const STATIC_AXIS_COLOR = "#64748b";
 const HIGH_VOLUME_AXIS_COLOR = "#ef4444"; // 대형주(범위 초과)
-const LOW_VOLUME_AXIS_COLOR = "#a855f7"; // 초소형주(범위 미달)
+const LOW_VOLUME_AXIS_COLOR = "#a855f7"; // 소형주(범위 미달)
 
 export default function FundFlowChart({ data }: Props) {
   if (!data || data.length === 0) return <p className="muted text-sm">데이터 없음</p>;
@@ -44,12 +43,12 @@ export default function FundFlowChart({ data }: Props) {
   const maxAbs = Math.max(
     ...formatted.map((d) => Math.max(Math.abs(d.개인), Math.abs(d.외국인), Math.abs(d.기관)))
   );
-  const isHigh = maxAbs > STATIC_DOMAIN;
-  const isLow = maxAbs > 0 && maxAbs < STATIC_DOMAIN * LOW_VOLUME_RATIO;
+  const isHigh = maxAbs > MID_MAX_VOLUME;
+  const isLow = maxAbs > 0 && maxAbs < MID_MIN_VOLUME;
   const isDynamic = isHigh || isLow;
   const domain: [number, number] = isDynamic
     ? [-maxAbs * 1.1, maxAbs * 1.1]
-    : [-STATIC_DOMAIN, STATIC_DOMAIN];
+    : [-MID_MAX_VOLUME, MID_MAX_VOLUME];
   const axisColor = isHigh ? HIGH_VOLUME_AXIS_COLOR : isLow ? LOW_VOLUME_AXIS_COLOR : STATIC_AXIS_COLOR;
 
   return (
@@ -79,8 +78,8 @@ export default function FundFlowChart({ data }: Props) {
         {isHigh
           ? "● 동적 축 (대형주 - 변동폭 기준)"
           : isLow
-          ? "● 동적 축 (초소형주 - 변동폭 기준)"
-          : "● 고정 축 (±50만주)"}
+          ? "● 동적 축 (소형주 - 변동폭 기준)"
+          : "● 고정 축 (중형주 ±15만주)"}
       </p>
     </div>
   );
