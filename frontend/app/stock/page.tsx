@@ -48,6 +48,7 @@ function StockContent() {
   const [livePrice, setLivePrice] = useState<{ price: number; change_pct: number; volume?: number } | null>(null);
   const [wsStatus, setWsStatus] = useState<"connecting" | "open" | "closed">("closed");
   const [fundFlow, setFundFlow] = useState<unknown[]>([]);
+  const [flowPriceData, setFlowPriceData] = useState<OHLCVRecord[]>([]);
   const [info, setInfo] = useState<{ name?: string; price?: number; change_pct?: number; per?: number; pbr?: number } | null>(null);
   const [financials, setFinancials] = useState<FinancialData | null>(null);
   const [financialsError, setFinancialsError] = useState("");
@@ -238,16 +239,26 @@ function StockContent() {
       startPriceWs(searchMarket, resolvedTicker);
       startPredStream(searchMarket, resolvedTicker);
 
-      // 자금흐름은 별도 try-catch — 실패해도 나머지 데이터는 유지
+      // 자금흐름은 별도 try-catch — 실패해도 나머지 데이터는 유지.
+      // 종가는 위 차트 기간(searchPeriod)과 무관하게 수급 창(90일)과 항상 맞는
+      // 별도 3개월 시세를 받아온다 — 안 그러면 사용자가 "1개월"을 선택했을 때
+      // 종가가 최근 1개월분만 있어서 90일짜리 수급-가격 차트의 앞 60일은
+      // 종가가 null이 되어 선이 끊겨 보인다.
       if (searchMarket === "KR") {
         try {
-          const ff = await api.getFundFlow(resolvedTicker, 90);
+          const [ff, flowChart] = await Promise.all([
+            api.getFundFlow(resolvedTicker, 90),
+            api.getChart(searchMarket, resolvedTicker, "3m"),
+          ]);
           setFundFlow(ff.data);
+          setFlowPriceData(flowChart.data);
         } catch {
           setFundFlow([]);
+          setFlowPriceData([]);
         }
       } else {
         setFundFlow([]);
+        setFlowPriceData([]);
       }
 
       // 재무제표 — 비동기 별도 조회
@@ -781,7 +792,7 @@ function StockContent() {
         <div className="card">
           <h2 className="font-semibold mb-3">수급-가격 관계 분석 (외국인·기관 누적순매수 vs 종가, 90일)</h2>
           <FlowPriceChart
-            priceData={chartData.map((d) => ({ date: d.date, close: d.close }))}
+            priceData={flowPriceData.map((d) => ({ date: d.date, close: d.close }))}
             flowData={fundFlow as Parameters<typeof FlowPriceChart>[0]["flowData"]}
           />
         </div>
