@@ -265,18 +265,20 @@ _NAVER_FRGN_FIELD_RE = re.compile(r'class="tah[^"]*">\s*([^<]+?)\s*</span>')
 
 
 def get_kr_fund_flow(ticker: str, days: int = 30) -> pd.DataFrame:
-    """개인/외국인/기관 순매매 금액(원) 조회.
+    """개인/외국인/기관 순매매 수량(주) 조회.
 
-    KRX_ID/KRX_PW 환경변수가 설정되어 있으면 pykrx(투자자별 매매동향, 금액 기준,
+    KRX_ID/KRX_PW 환경변수가 설정되어 있으면 pykrx(투자자별 매매동향, 수량 기준,
     3주체 전부 포함)를 우선 사용한다. 로그인 세션이 없거나 실패하면 네이버 금융
     스크래핑(거래량(주) 기준, 외국인·기관만)으로 폴백한다 — 단, 2026-09-11 네이버
     금융이 클라이언트 렌더링 SPA로 전면 개편되어 현재는 이 폴백이 항상 빈 결과를
-    반환한다(향후 사이트가 복구되거나 API를 다시 찾으면 자동으로 살아남).
+    반환한다(향후 사이트가 복구되거나 API를 다시 찾으면 자동으로 살아난다). 두
+    경로 모두 단위가 주(株)로 일치한다(예전엔 pykrx만 금액 기준이라 폴백과 단위가
+    어긋났었음).
     """
     end = datetime.now().strftime("%Y%m%d")
     start = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
     try:
-        df = krx.get_market_trading_value_by_date(start, end, ticker)
+        df = krx.get_market_trading_volume_by_date(start, end, ticker)
         if not df.empty:
             return df
     except Exception:

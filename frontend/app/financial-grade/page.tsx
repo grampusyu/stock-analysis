@@ -448,7 +448,7 @@ export default function FinancialGradePage() {
                     {expandedCode === r.code && (
                       <div className="pt-2" style={{ borderTop: "1px solid var(--card-border)" }}>
                         <div className="flex items-center justify-between mb-1">
-                          <p className="text-xs" style={{ color: "var(--muted)" }}>개인·외국인·기관 순매매 금액</p>
+                          <p className="text-xs" style={{ color: "var(--muted)" }}>개인·외국인·기관 순매매 수량</p>
                           <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: "var(--card-border)" }}>
                             {FUND_FLOW_DAYS_OPTIONS.map((d) => (
                               <button

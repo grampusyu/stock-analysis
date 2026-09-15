@@ -36,9 +36,9 @@ interface Props {
 }
 
 const fmtFlow = (v: number) => {
-  if (Math.abs(v) >= 1e8) return `${(v / 1e8).toFixed(1)}억원`;
-  if (Math.abs(v) >= 1e4) return `${(v / 1e4).toFixed(0)}만원`;
-  return `${v.toFixed(0)}원`;
+  if (Math.abs(v) >= 1e8) return `${(v / 1e8).toFixed(1)}억주`;
+  if (Math.abs(v) >= 1e4) return `${(v / 1e4).toFixed(0)}만주`;
+  return `${v.toFixed(0)}주`;
 };
 
 function pearson(xs: number[], ys: number[]): number | null {
