@@ -3,9 +3,10 @@ import { useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import StockChart from "@/components/StockChart";
-import FundFlowChart from "@/components/FundFlowChart";
+import FlowPriceChart from "@/components/FlowPriceChart";
 import FinancialsPanel from "@/components/FinancialsPanel";
-import { api, Market, Period, OHLCVRecord, TechnicalSummary, PredictionResult, FinancialData, CompanyOverview, NewsArticle, API_BASE, WS_BASE, NGROK_HEADER } from "@/lib/api";
+import IntradaySpaghettiChart from "@/components/IntradaySpaghettiChart";
+import { api, Market, Period, OHLCVRecord, TechnicalSummary, PredictionResult, FinancialData, CompanyOverview, NewsArticle, IntradayPattern, API_BASE, WS_BASE, NGROK_HEADER } from "@/lib/api";
 
 const PERIODS: Period[] = ["1m", "3m", "6m", "1y", "3y"];
 const PERIOD_LABEL: Record<Period, string> = { "1m": "1개월", "3m": "3개월", "6m": "6개월", "1y": "1년", "3y": "3년" };
@@ -52,9 +53,14 @@ function StockContent() {
   const [financialsError, setFinancialsError] = useState("");
   const [overview, setOverview] = useState<CompanyOverview | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"chart" | "news">("chart");
+  const [activeTab, setActiveTab] = useState<"chart" | "news" | "intraday">("chart");
   const [newsArticles, setNewsArticles] = useState<NewsArticle[]>([]);
   const [newsLoading, setNewsLoading] = useState(false);
+  const [intradayPattern, setIntradayPattern] = useState<IntradayPattern | null>(null);
+  const [intradayLoading, setIntradayLoading] = useState(false);
+  const [intradayError, setIntradayError] = useState("");
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [favoriteMarket, setFavoriteMarket] = useState<string | null>(null); // 재무등급 데이터 상의 실제 시장(KOSPI/KOSDAQ)
   const [error, setError] = useState("");
   const [krMapStatus, setKrMapStatus] = useState<{ fullMapReady: boolean; fullMapBuilding: boolean; totalTickers: number | null } | null>(null);
   const krMapPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -188,6 +194,10 @@ function StockContent() {
     setWsStatus("closed");
     setActiveTab("chart");
     setNewsArticles([]);
+    setIntradayPattern(null);
+    setIntradayError("");
+    setIsFavorite(false);
+    setFavoriteMarket(null);
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
 
     // 종목명 입력 시 티커코드로 자동 변환
@@ -199,6 +209,19 @@ function StockContent() {
     }
     // 코드로 확정 (이후 search() 재호출 시 코드로 검색)
     setTicker(resolvedTicker);
+    if (searchMarket === "KR") {
+      // 재무등급 데이터의 market은 KOSPI/KOSDAQ 단위라서, 즐겨찾기 매칭을 위해 실제 시장을 먼저 확인
+      api.getFinancialGradeByCode(resolvedTicker)
+        .then((res) => {
+          const realMarket = res.results?.[0]?.market ?? null;
+          setFavoriteMarket(realMarket);
+          if (!realMarket) { setIsFavorite(false); return; }
+          return api.getFinancialGradeFavorites().then((favRes) =>
+            setIsFavorite((favRes.items ?? []).some((it) => it.market === realMarket && it.code === resolvedTicker))
+          );
+        })
+        .catch(() => { setFavoriteMarket(null); setIsFavorite(false); });
+    }
     try {
       const [chartRes, techRes, infoRes] = await Promise.all([
         api.getChart(searchMarket, resolvedTicker, searchPeriod).catch((e) => { throw new Error(`차트: ${e.message}`); }),
@@ -218,7 +241,7 @@ function StockContent() {
       // 자금흐름은 별도 try-catch — 실패해도 나머지 데이터는 유지
       if (searchMarket === "KR") {
         try {
-          const ff = await api.getFundFlow(resolvedTicker, 30);
+          const ff = await api.getFundFlow(resolvedTicker, 90);
           setFundFlow(ff.data);
         } catch {
           setFundFlow([]);
@@ -242,6 +265,18 @@ function StockContent() {
       setError(e instanceof Error ? e.message : "조회 실패");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const toggleFavorite = async () => {
+    if (!favoriteMarket || !ticker) return;
+    const next = !isFavorite;
+    setIsFavorite(next); // 낙관적 업데이트
+    try {
+      if (next) await api.addFinancialGradeFavorite(favoriteMarket, ticker);
+      else await api.removeFinancialGradeFavorite(favoriteMarket, ticker);
+    } catch {
+      setIsFavorite(!next); // 실패 시 되돌리기
     }
   };
 
@@ -484,7 +519,29 @@ function StockContent() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {/* 종목명 */}
             <div className="card">
-              <p className="muted text-xs mb-1">종목명</p>
+              <div className="flex items-center justify-between mb-1">
+                <p className="muted text-xs">종목명</p>
+                {market === "KR" && (
+                  <button
+                    onClick={toggleFavorite}
+                    disabled={!favoriteMarket}
+                    title={
+                      !favoriteMarket
+                        ? "재무 등급 데이터가 없는 종목이라 관심 등록을 할 수 없습니다"
+                        : isFavorite
+                        ? "관심 종목에서 제거"
+                        : "관심 종목으로 등록 (재무 등급 페이지의 관심카드에 표시)"
+                    }
+                    className="text-lg leading-none transition-colors"
+                    style={{
+                      color: !favoriteMarket ? "var(--card-border)" : isFavorite ? "#f59e0b" : "var(--muted)",
+                      cursor: !favoriteMarket ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {isFavorite ? "★" : "☆"}
+                  </button>
+                )}
+              </div>
               <p className="text-lg font-bold">{info.name}</p>
             </div>
             {/* 현재가 — LIVE 배지 */}
@@ -519,7 +576,7 @@ function StockContent() {
       {/* 탭 */}
       {chartData.length > 0 && (
         <div className="flex gap-1 border-b" style={{ borderColor: "var(--card-border)" }}>
-          {(["chart", "news"] as const).map((tab) => (
+          {(["chart", "intraday", "news"] as const).map((tab) => (
             <button
               key={tab}
               onClick={async () => {
@@ -532,6 +589,18 @@ function StockContent() {
                   } catch { setNewsArticles([]); }
                   finally { setNewsLoading(false); }
                 }
+                if (tab === "intraday" && !intradayPattern && !intradayLoading && ticker) {
+                  setIntradayLoading(true);
+                  setIntradayError("");
+                  try {
+                    const res = await api.getIntradayPattern(market, ticker);
+                    setIntradayPattern(res);
+                  } catch {
+                    setIntradayError("장중 패턴 데이터를 불러오지 못했습니다");
+                  } finally {
+                    setIntradayLoading(false);
+                  }
+                }
               }}
               className="px-4 py-2 text-sm font-medium transition-colors"
               style={{
@@ -540,7 +609,7 @@ function StockContent() {
                 marginBottom: "-1px",
               }}
             >
-              {tab === "chart" ? "차트 & 분석" : "뉴스"}
+              {tab === "chart" ? "차트 & 분석" : tab === "intraday" ? "장중 패턴" : "뉴스"}
             </button>
           ))}
         </div>
@@ -576,6 +645,35 @@ function StockContent() {
               </div>
             </a>
           ))}
+        </div>
+      )}
+
+      {/* 장중 패턴 탭 */}
+      {activeTab === "intraday" && (
+        <div className="card space-y-3">
+          <div>
+            <h2 className="font-semibold">일자별 궤적 겹쳐보기</h2>
+            <p className="text-xs mt-1" style={{ color: "var(--muted)" }}>
+              최근 {intradayPattern?.days_used ?? "60"}거래일 각각의 실제 하루 흐름(회색, 그날 시가 대비 %)을 그대로 겹쳐 그리고, 굵은 파란 선이 평균입니다.
+            </p>
+            <p className="text-xs mt-2 rounded-lg px-3 py-2" style={{ background: "#f59e0b1a", color: "#f59e0b" }}>
+              ⚠️ 과거 평균적인 흐름을 보여주는 탐색용 참고 지표이며, 매매 신호나 다음 거래일 예측이 아닙니다.
+            </p>
+          </div>
+          {intradayLoading && (
+            <div className="text-center py-10 text-sm animate-pulse" style={{ color: "var(--muted)" }}>불러오는 중...</div>
+          )}
+          {!intradayLoading && intradayError && (
+            <div className="text-center py-10 text-sm" style={{ color: "var(--muted)" }}>{intradayError}</div>
+          )}
+          {!intradayLoading && !intradayError && intradayPattern && intradayPattern.hours.length === 0 && (
+            <div className="text-center py-10 text-sm" style={{ color: "var(--muted)" }}>
+              시간대별 데이터를 구할 수 없습니다.
+            </div>
+          )}
+          {!intradayLoading && !intradayError && intradayPattern && intradayPattern.hours.length > 0 && intradayPattern.daily_series.length > 0 && (
+            <IntradaySpaghettiChart hours={intradayPattern.hours} dailySeries={intradayPattern.daily_series} />
+          )}
         </div>
       )}
 
@@ -678,11 +776,14 @@ function StockContent() {
         )}
       </div>
 
-      {/* 자금 흐름 */}
+      {/* 수급-가격 관계 분석 */}
       {activeTab === "chart" && market === "KR" && fundFlow.length > 0 && (
         <div className="card">
-          <h2 className="font-semibold mb-3">자금 유입 흐름 (30일)</h2>
-          <FundFlowChart data={fundFlow as Parameters<typeof FundFlowChart>[0]["data"]} />
+          <h2 className="font-semibold mb-3">수급-가격 관계 분석 (외국인·기관 누적순매수 vs 종가, 90일)</h2>
+          <FlowPriceChart
+            priceData={chartData.map((d) => ({ date: d.date, close: d.close }))}
+            flowData={fundFlow as Parameters<typeof FlowPriceChart>[0]["flowData"]}
+          />
         </div>
       )}
 

@@ -1,4 +1,8 @@
+import re
+
+import requests
 import yfinance as yf
+import numpy as np
 import pandas as pd
 from pykrx import stock as krx
 from datetime import datetime, timedelta
@@ -135,6 +139,106 @@ def get_ohlcv(ticker: str, market: str, period: str = "1y", interval: str = "dai
         return df[["open", "high", "low", "close", "volume"]]
 
 
+def get_intraday_pattern(ticker: str, market: str) -> dict:
+    """최근 60거래일의 5분봉을 10분 단위로 묶어 '하루 중 시간대별 평균 가격 변동'
+    패턴을 계산한다.
+
+    각 거래일의 장 시작가(그날 첫 봉의 시가) 대비 매 10분 구간 종가의 변화율을 구하고,
+    같은 시간대(예: 11:00)끼리 모아 평균·표준편차를 낸다. 매매 신호가 아니라
+    "이 종목은 보통 장 초반에 오르는 편인지" 정도를 보여주는 탐색용 참고 지표다.
+    (yfinance는 10분봉을 직접 지원하지 않아 5분봉을 받아 2개씩 묶는다)
+    """
+    if market == "KR":
+        # 코스피(.KS)/코스닥(.KQ) 중 어느 쪽인지 미리 알 수 없고, yfinance가 틀린
+        # 접미사에도 가끔 소량의 부실한(며칠치뿐인) 데이터를 돌려줘서 "비어있지 않으면
+        # 그대로 사용"은 위험함(예: 코스닥 종목인데 .KS로도 조회돼 그쪽을 잘못 채택) —
+        # 두 접미사 다 조회해서 행 수가 더 많은(더 완전한) 쪽을 채택한다.
+        df_ks = yf.Ticker(f"{ticker}.KS").history(period="60d", interval="5m")
+        df_kq = yf.Ticker(f"{ticker}.KQ").history(period="60d", interval="5m")
+        df = df_ks if len(df_ks) >= len(df_kq) else df_kq
+    else:
+        df = yf.Ticker(ticker).history(period="60d", interval="5m")
+    if df.empty:
+        return {"hours": [], "days_used": 0}
+
+    df = df[["Open", "Close"]].dropna()
+    df["date"] = df.index.date
+    # 분을 10분 단위로 내림(예: 09:05→09:00, 09:15→09:10)해 같은 10분 구간으로 묶는다
+    bucket_ts = df.index.floor("10min")
+    df["hour"] = bucket_ts.strftime("%H:%M")
+    df = df.groupby(["date", "hour"], sort=False).agg(Open=("Open", "first"), Close=("Close", "last")).reset_index()
+
+    rows = []
+    for date, day_df in df.groupby("date"):
+        day_open = day_df["Open"].iloc[0]
+        if not day_open:
+            continue
+        for hour, close in zip(day_df["hour"], day_df["Close"]):
+            rows.append({"date": date, "hour": hour, "change_pct": (close - day_open) / day_open * 100})
+
+    if not rows:
+        return {"hours": [], "days_used": 0}
+
+    rows_df = pd.DataFrame(rows)
+    agg = rows_df.groupby("hour")["change_pct"].agg(["mean", "std", "count"]).reset_index()
+    agg = agg.sort_values("hour")
+    hours = [
+        {
+            "hour": r["hour"],
+            "avg_pct": round(r["mean"], 3),
+            "std_pct": round(r["std"], 3) if pd.notna(r["std"]) else 0.0,
+            "n": int(r["count"]),
+        }
+        for _, r in agg.iterrows()
+    ]
+
+    # 시간대별 누적분포(히트맵용) — 0.5%p 고정 폭 구간. 극단 이상치가 구간 수를
+    # 과도하게 늘리지 않도록 1~99 퍼센타일 범위만 0.5 단위로 반올림해서 사용한다.
+    BIN_STEP = 0.5
+    lo_raw, hi_raw = rows_df["change_pct"].quantile([0.01, 0.99])
+    if lo_raw == hi_raw:
+        lo_raw, hi_raw = lo_raw - BIN_STEP, hi_raw + BIN_STEP
+    lo = np.floor(lo_raw / BIN_STEP) * BIN_STEP
+    hi = np.ceil(hi_raw / BIN_STEP) * BIN_STEP
+    n_bins = max(1, round((hi - lo) / BIN_STEP))
+    edges = lo + np.arange(n_bins + 1) * BIN_STEP
+    rows_df["bin"] = pd.cut(rows_df["change_pct"], bins=edges, include_lowest=True, labels=False)
+    rows_df["bin"] = rows_df["bin"].clip(0, n_bins - 1)
+
+    hour_order = sorted(rows_df["hour"].unique())
+    bin_labels = [f"{edges[i]:.1f}~{edges[i+1]:.1f}%" for i in range(n_bins)]
+    counts = rows_df.groupby(["hour", "bin"]).size().unstack(fill_value=0)
+    counts = counts.reindex(index=hour_order, columns=range(n_bins), fill_value=0)
+    grid = counts.values.tolist()  # grid[hour_idx][bin_idx]
+
+    distribution = {
+        "hours": hour_order,
+        "bins": bin_labels,
+        "grid": grid,
+        "max_count": int(counts.values.max()) if counts.size else 0,
+    }
+
+    # 하루하루의 실제 궤적을 그대로 겹쳐 그리기 위한 일자별 시계열(스파게티 차트용).
+    # 날짜별로 시간대(hour_order) 순서에 맞춰 변화율을 나열하고, 그 시간에 값이
+    # 없는 날은 null로 채운다(요일별 조기 폐장 등으로 누락될 수 있음).
+    pivot = rows_df.pivot_table(index="date", columns="hour", values="change_pct", aggfunc="last")
+    pivot = pivot.reindex(columns=hour_order)
+    daily_series = [
+        {
+            "date": str(date),
+            "values": [round(v, 3) if pd.notna(v) else None for v in row],
+        }
+        for date, row in pivot.iterrows()
+    ]
+
+    return {
+        "hours": hours,
+        "days_used": int(df["date"].nunique()),
+        "distribution": distribution,
+        "daily_series": daily_series,
+    }
+
+
 def get_sector_stocks(market: str, sector: str) -> list[dict]:
     tickers = SECTOR_STOCKS.get(market.upper(), {}).get(sector, [])
 
@@ -154,14 +258,88 @@ def get_sector_stocks(market: str, sector: str) -> list[dict]:
         return list(ex.map(fetch, tickers))
 
 
+_NAVER_FRGN_ROW_RE = re.compile(
+    r'<tr onMouseOver="mouseOver\(this\)"[^>]*>(.*?)</tr>', re.S
+)
+_NAVER_FRGN_FIELD_RE = re.compile(r'class="tah[^"]*">\s*([^<]+?)\s*</span>')
+
+
 def get_kr_fund_flow(ticker: str, days: int = 30) -> pd.DataFrame:
+    """개인/외국인/기관 순매매 금액(원) 조회.
+
+    KRX_ID/KRX_PW 환경변수가 설정되어 있으면 pykrx(투자자별 매매동향, 금액 기준,
+    3주체 전부 포함)를 우선 사용한다. 로그인 세션이 없거나 실패하면 네이버 금융
+    스크래핑(거래량(주) 기준, 외국인·기관만)으로 폴백한다 — 단, 2026-09-11 네이버
+    금융이 클라이언트 렌더링 SPA로 전면 개편되어 현재는 이 폴백이 항상 빈 결과를
+    반환한다(향후 사이트가 복구되거나 API를 다시 찾으면 자동으로 살아남).
+    """
     end = datetime.now().strftime("%Y%m%d")
     start = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
     try:
         df = krx.get_market_trading_value_by_date(start, end, ticker)
-        return df
+        if not df.empty:
+            return df
     except Exception:
+        pass
+
+    return _get_kr_fund_flow_naver_fallback(ticker, days)
+
+
+def _get_kr_fund_flow_naver_fallback(ticker: str, days: int = 30) -> pd.DataFrame:
+    cutoff = datetime.now() - timedelta(days=days)
+    rows: list[dict] = []
+    seen_dates: set[str] = set()
+
+    for page in range(1, 7):  # 페이지당 약 20거래일 → 최대 6페이지(~4개월)면 충분
+        try:
+            resp = requests.get(
+                "https://finance.naver.com/item/frgn.naver",
+                params={"code": ticker, "page": page},
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=5,
+            )
+            resp.encoding = "euc-kr"
+            html = resp.text
+        except Exception:
+            break
+
+        trs = _NAVER_FRGN_ROW_RE.findall(html)
+        if not trs:
+            break
+
+        page_has_new = False
+        oldest_date = None
+        for tr in trs:
+            fields = _NAVER_FRGN_FIELD_RE.findall(tr)
+            if len(fields) < 7:
+                continue
+            date_str = fields[0].strip()
+            if not re.match(r"^\d{4}\.\d{2}\.\d{2}$", date_str):
+                continue
+            oldest_date = date_str
+            if date_str in seen_dates:
+                continue
+            seen_dates.add(date_str)
+            try:
+                inst = float(fields[5].replace(",", ""))
+                frgn = float(fields[6].replace(",", ""))
+            except ValueError:
+                continue
+            page_has_new = True
+            rows.append({"날짜": date_str.replace(".", "-"), "기관합계": inst, "외국인합계": frgn})
+
+        if not page_has_new:
+            break
+        if oldest_date and datetime.strptime(oldest_date, "%Y.%m.%d") < cutoff:
+            break
+
+    if not rows:
         return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+    df["날짜"] = pd.to_datetime(df["날짜"])
+    df = df[df["날짜"] >= cutoff].sort_values("날짜").set_index("날짜")
+    return df
 
 
 def _safe(v) -> float | None:

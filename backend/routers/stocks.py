@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from services.market_data import get_us_stock_info, get_kr_stock_info, get_ohlcv, get_sector_data, get_sector_stocks
+from services.market_data import get_us_stock_info, get_kr_stock_info, get_ohlcv, get_sector_data, get_sector_stocks, get_intraday_pattern
 from services.ml_predictor import get_technical_summary, predict_price
 from pykrx import stock as krx
 from datetime import datetime
@@ -130,6 +130,15 @@ def technical_analysis(market: str, ticker: str):
         df = get_ohlcv(ticker.upper() if market.upper() == "US" else ticker, market.upper(), "1y")
         summary = get_technical_summary(df)
         return summary
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/intraday-pattern/{market}/{ticker}")
+def intraday_pattern(market: str, ticker: str):
+    try:
+        t = ticker.upper() if market.upper() == "US" else ticker
+        return get_intraday_pattern(t, market.upper())
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

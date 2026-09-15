@@ -6,8 +6,30 @@ import {
   IChartApi,
   CandlestickSeries,
   HistogramSeries,
+  LineSeries,
 } from "lightweight-charts";
 import type { OHLCVRecord } from "@/lib/api";
+
+const BB_PERIOD = 20;
+const BB_STDDEV = 2;
+
+function computeBollingerBands(data: OHLCVRecord[]) {
+  const upper: { time: string; value: number }[] = [];
+  const middle: { time: string; value: number }[] = [];
+  const lower: { time: string; value: number }[] = [];
+
+  for (let i = BB_PERIOD - 1; i < data.length; i++) {
+    const window = data.slice(i - BB_PERIOD + 1, i + 1).map((d) => d.close);
+    const mean = window.reduce((s, v) => s + v, 0) / BB_PERIOD;
+    const variance = window.reduce((s, v) => s + (v - mean) ** 2, 0) / BB_PERIOD;
+    const std = Math.sqrt(variance);
+    const time = data[i].date as string;
+    middle.push({ time, value: mean });
+    upper.push({ time, value: mean + BB_STDDEV * std });
+    lower.push({ time, value: mean - BB_STDDEV * std });
+  }
+  return { upper, middle, lower };
+}
 
 interface Props {
   data: OHLCVRecord[];
@@ -63,6 +85,24 @@ export default function StockChart({ data, height = 400, priceFormatter, market 
         close: d.close,
       }))
     );
+
+    // 볼린저밴드(20일 이동평균 ±2표준편차) — 캔들 위에 겹쳐 그림
+    if (data.length >= BB_PERIOD) {
+      const { upper, middle, lower } = computeBollingerBands(data);
+      const bandColor = "#eab308";
+      const upperSeries = chart.addSeries(LineSeries, {
+        color: bandColor, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      });
+      upperSeries.setData(upper);
+      const middleSeries = chart.addSeries(LineSeries, {
+        color: bandColor, lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      });
+      middleSeries.setData(middle);
+      const lowerSeries = chart.addSeries(LineSeries, {
+        color: bandColor, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      });
+      lowerSeries.setData(lower);
+    }
 
     const volSeries = chart.addSeries(HistogramSeries, {
       color: "#3b82f680",

@@ -10,7 +10,7 @@ Start-Process "cmd.exe" -ArgumentList '/k "D:\02_Project\stock-analysis\start_fr
 Start-Sleep -Seconds 12
 
 # ngrok
-Start-Process "cmd.exe" -ArgumentList '/k "C:\Windows\ngrok.exe http --domain=doze-backed-uncorrupt.ngrok-free.dev 3000"' -WindowStyle Normal
+Start-Process "cmd.exe" -ArgumentList '/k "ngrok.exe http --url=doze-backed-uncorrupt.ngrok-free.dev 3000"' -WindowStyle Normal
 
 Write-Host "모든 서비스 시작 완료"
 Write-Host "외부 접속: https://doze-backed-uncorrupt.ngrok-free.dev"
