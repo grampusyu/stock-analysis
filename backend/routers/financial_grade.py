@@ -17,6 +17,8 @@ import pandas as pd
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
+from services.market_data import SECTOR_STOCKS
+
 router = APIRouter()
 
 CSV_DIR = os.environ.get(
@@ -43,6 +45,24 @@ def _load_sector_map() -> dict[str, str]:
 
 
 SECTOR_MAP = _load_sector_map()
+
+
+def _build_theme_map() -> dict[str, str]:
+    """/sectors 페이지의 30개 테마(SECTOR_STOCKS["KR"])를 종목코드 -> 테마명으로 뒤집는다.
+
+    한 종목이 여러 테마에 동시 소속된 경우(예: LG화학은 화학/석유/2차전지/ESS 4곳)
+    딕셔너리 정의 순서상 먼저 나오는 테마를 채택한다(setdefault). 테마는 12종목씩만
+    수동 선별된 목록이라 전종목을 커버하지 못하므로, 여기 없는 종목은 KSIC 업종명으로
+    폴백한다(아래 _load() 참고).
+    """
+    theme_map: dict[str, str] = {}
+    for theme, tickers in SECTOR_STOCKS.get("KR", {}).items():
+        for ticker in tickers:
+            theme_map.setdefault(ticker, theme)
+    return theme_map
+
+
+TICKER_THEME_MAP = _build_theme_map()
 
 # DART induty_code는 회사가 등록 시점에 신고한 값이 그대로 남아있어, 이후 주력 사업을
 # 바꾼 회사는 실제 업종과 다르게 표시되는 경우가 있다(예: 파미셀은 등록 코드가 여전히
@@ -105,9 +125,13 @@ def _load() -> tuple[list[dict], str | None]:
     df["tier"] = pd.Categorical(df["tier"], categories=TIER_ORDER, ordered=True)
     # induty_code(3~5자리 KSIC 세분류)는 490여 개로 필터 드롭다운에 쓰기엔 너무 세분화되어
     # 있어서, 앞 2자리(KSIC 중분류/division, 전체 77개 중 실제로는 약 60개만 등장)로
-    # 묶어 "업종" 필터 단위로 쓴다.
+    # 묶어 "업종" 필터의 기본값으로 쓴다.
     division_code = df["induty_code"].fillna("").astype(str).str.slice(0, 2)
     df["sector"] = division_code.map(SECTOR_MAP).fillna("기타")
+    # /sectors 페이지와 동일한 테마(반도체/2차전지/게임 등)에 속한 종목은 그 테마명으로
+    # 덮어써서 사용자가 익숙한 테마 기준으로도 필터링할 수 있게 한다(테마가 없는 종목은
+    # 위에서 계산한 KSIC 업종명 유지).
+    df["sector"] = df["code"].map(TICKER_THEME_MAP).fillna(df["sector"])
     df["sector"] = df["code"].map(SECTOR_OVERRIDES).fillna(df["sector"])
     df = df.sort_values(["tier", "score"], ascending=[True, False])
     df = df.astype(object).where(pd.notnull(df), None)  # NaN -> None (Starlette JSONResponse는 NaN을 허용 안 함)
