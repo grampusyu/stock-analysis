@@ -229,7 +229,7 @@ def _batch_sentiment(candidates: list[dict]) -> dict[str, str]:
     try:
         from google import genai
         client = genai.Client(api_key=api_key)
-        resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+        resp = client.models.generate_content(model="gemini-3.6-flash", contents=prompt)
         raw = resp.text.strip()
         parsed = json.loads(raw[raw.find("["):raw.rfind("]") + 1])
         return {item["t"]: item.get("s", "부정") for item in parsed if "t" in item}

@@ -42,7 +42,7 @@ sentiment는 반드시 "긍정", "중립", "부정" 중 하나여야 합니다."
     for attempt in range(3):
         try:
             response = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-3.6-flash",
                 contents=prompt,
             )
             raw = response.text.strip()
