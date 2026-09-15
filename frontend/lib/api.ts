@@ -17,6 +17,17 @@ async function get<T>(path: string): Promise<T> {
   return res.json();
 }
 
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json", ...NGROK_HEADER },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
 export type Market = "US" | "KR";
 export type Period = "1m" | "3m" | "6m" | "1y" | "3y";
 
@@ -40,6 +51,32 @@ export interface OHLCVRecord {
   low: number;
   close: number;
   volume: number;
+}
+
+export interface IntradayHourStat {
+  hour: string;
+  avg_pct: number;
+  std_pct: number;
+  n: number;
+}
+
+export interface IntradayDistribution {
+  hours: string[];
+  bins: string[];
+  grid: number[][];
+  max_count: number;
+}
+
+export interface IntradayDailySeries {
+  date: string;
+  values: (number | null)[];
+}
+
+export interface IntradayPattern {
+  hours: IntradayHourStat[];
+  days_used: number;
+  distribution: IntradayDistribution;
+  daily_series: IntradayDailySeries[];
 }
 
 export interface TechnicalSummary {
@@ -104,6 +141,60 @@ export interface NewsArticle {
   published: string;
 }
 
+export interface PatternScanRow {
+  code: string;
+  name: string;
+  market: string;
+  score: number;
+  mom_20: number;
+  vol_20: number;
+  foreign_ratio: number;
+  inst_ratio: number;
+  foreign_trend: number;
+  inst_trend: number;
+  last_close: number;
+  avg_trading_value: number;
+}
+
+export type FinancialTier = "최상" | "상" | "중" | "하" | "최하";
+export type UpsideLabel = "높음" | "보통" | "낮음";
+
+export interface FinancialGradeRow {
+  code: string;
+  name: string;
+  market: string;
+  induty_code: string;
+  score: number;
+  tier: FinancialTier;
+  roe: number | null;
+  op_margin: number | null;
+  debt_ratio: number | null;
+  revenue_growth: number | null;
+  op_income_growth: number | null;
+  per: number | null;
+  pbr: number | null;
+  sector_avg_per: number | null;
+  sector_avg_pbr: number | null;
+  undervalued: boolean;
+  sparkline: number[] | null;
+  mom_5: number | null;
+  mom_20: number | null;
+  short_term_score: number | null;
+  short_term_label: UpsideLabel | null;
+  mid_term_score: number | null;
+  mid_term_label: UpsideLabel | null;
+  long_term_score: number | null;
+  long_term_label: UpsideLabel | null;
+}
+
+export interface ShapeSearchResult {
+  code: string;
+  name: string;
+  market: string;
+  distance: number;
+  preview: number[];
+}
+
 export interface Holding {
   ticker: string;
   market: Market;
@@ -129,6 +220,9 @@ export const api = {
 
   getTechnical: (market: Market, ticker: string) =>
     get<TechnicalSummary>(`/stocks/technical/${market}/${ticker}`),
+
+  getIntradayPattern: (market: Market, ticker: string) =>
+    get<IntradayPattern>(`/stocks/intraday-pattern/${market}/${ticker}`),
 
   getPredict: (market: Market, ticker: string, days = 7) =>
     get<PredictionResult>(`/stocks/predict/${market}/${ticker}?days=${days}`),
@@ -174,4 +268,46 @@ export const api = {
 
   getMarketNews: (market: Market) =>
     get<{ articles: NewsArticle[]; market: string }>(`/news/market?market=${market}`),
+
+  getPatternScan: (market: "ALL" | "KOSPI" | "KOSDAQ" = "ALL", limit = 50) =>
+    get<{ results: PatternScanRow[]; total: number; date: string | null }>(
+      `/pattern-scan?market=${market}&limit=${limit}`
+    ),
+
+  searchShape: (points: number[], window: 20 | 60 | 120, market: "ALL" | "KOSPI" | "KOSDAQ", limit = 20) =>
+    post<{ results: ShapeSearchResult[]; total: number }>("/shape-search", { points, window, market, limit }),
+
+  getFinancialGrade: (opts: {
+    market?: "ALL" | "KOSPI" | "KOSDAQ";
+    tier?: "ALL" | FinancialTier;
+    undervaluedOnly?: boolean;
+    limit?: number;
+  } = {}) => {
+    const { market = "ALL", tier = "ALL", undervaluedOnly = false, limit = 200 } = opts;
+    return get<{
+      results: FinancialGradeRow[];
+      total: number;
+      date: string | null;
+      tier_counts: Record<string, number>;
+    }>(`/financial-grade?market=${market}&tier=${encodeURIComponent(tier)}&undervalued_only=${undervaluedOnly}&limit=${limit}`);
+  },
+
+  getFinancialGradeByCode: (code: string) =>
+    get<{ results: FinancialGradeRow[]; total: number }>(`/financial-grade?code=${code}`),
+
+  getFinancialGradeFavorites: () =>
+    get<{ items: { market: string; code: string }[] }>("/financial-grade/favorites"),
+
+  addFinancialGradeFavorite: (market: string, code: string) =>
+    fetch(`${BASE}/financial-grade/favorites`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...NGROK_HEADER },
+      body: JSON.stringify({ market, code }),
+    }).then((r) => r.json()),
+
+  removeFinancialGradeFavorite: (market: string, code: string) =>
+    fetch(`${BASE}/financial-grade/favorites/${market}/${code}`, {
+      method: "DELETE",
+      headers: NGROK_HEADER,
+    }).then((r) => r.json()),
 };
